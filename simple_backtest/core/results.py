@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from simple_backtest.metrics.objectives import metric_is_maximized
+
 
 class StrategyResult:
     """Results for a single strategy with convenience methods.
@@ -27,6 +29,7 @@ class StrategyResult:
         self.portfolio_values = data["portfolio_values"]
         self.trade_history = data["trade_history"]
         self.returns = data["returns"]
+        self.errors = data.get("errors", [])
 
     def summary(self) -> str:
         """Get formatted metrics summary.
@@ -45,7 +48,7 @@ class StrategyResult:
         """
         from simple_backtest.visualization.plotter import plot_equity_curve
 
-        return plot_equity_curve({self.name: self._to_dict()})
+        return plot_equity_curve({self.name: self._to_dict()}, show_drawdown=show_drawdown)
 
     def plot_trades(self, price_data):
         """Plot price chart with buy/sell markers for this strategy.
@@ -107,6 +110,7 @@ class StrategyResult:
             "portfolio_values": self.portfolio_values,
             "trade_history": self.trade_history,
             "returns": self.returns,
+            "errors": self.errors,
         }
 
     def __getitem__(self, key: str) -> Any:
@@ -199,11 +203,13 @@ class BacktestResults:
         df = pd.DataFrame(comparison).T
         # Sort by first metric (descending if it's a positive metric)
         if len(df) > 0 and metrics[0] in df.columns:
-            df = df.sort_values(metrics[0], ascending=False)
+            df = df.sort_values(metrics[0], ascending=not metric_is_maximized(metrics[0]))
 
         return df
 
-    def best_strategy(self, metric: str = "sharpe_ratio") -> StrategyResult:
+    def best_strategy(
+        self, metric: str = "sharpe_ratio", maximize: bool | None = None
+    ) -> StrategyResult:
         """Get best performing strategy by a metric.
 
         :param metric: Metric to optimize for (default: sharpe_ratio)
@@ -213,13 +219,19 @@ class BacktestResults:
         if not self._strategies:
             raise ValueError("No strategies available")
 
-        best_name = max(
+        self._validate_metric(metric)
+        should_maximize = metric_is_maximized(metric) if maximize is None else maximize
+
+        selector = max if should_maximize else min
+        best_name = selector(
             self._strategies.keys(),
-            key=lambda name: self._strategies[name].metrics.get(metric, float("-inf")),
+            key=lambda name: self._strategies[name].metrics[metric],
         )
         return self._strategies[best_name]
 
-    def worst_strategy(self, metric: str = "sharpe_ratio") -> StrategyResult:
+    def worst_strategy(
+        self, metric: str = "sharpe_ratio", maximize: bool | None = None
+    ) -> StrategyResult:
         """Get worst performing strategy by a metric.
 
         :param metric: Metric to optimize for (default: sharpe_ratio)
@@ -229,11 +241,23 @@ class BacktestResults:
         if not self._strategies:
             raise ValueError("No strategies available")
 
-        worst_name = min(
+        self._validate_metric(metric)
+        should_maximize = metric_is_maximized(metric) if maximize is None else maximize
+
+        selector = min if should_maximize else max
+        worst_name = selector(
             self._strategies.keys(),
-            key=lambda name: self._strategies[name].metrics.get(metric, float("inf")),
+            key=lambda name: self._strategies[name].metrics[metric],
         )
         return self._strategies[worst_name]
+
+    def _validate_metric(self, metric: str) -> None:
+        """Require a comparable metric on every strategy."""
+        missing = [
+            name for name, result in self._strategies.items() if metric not in result.metrics
+        ]
+        if missing:
+            raise KeyError(f"Metric '{metric}' is missing for strategies: {missing}")
 
     def plot_comparison(self, include_benchmark: bool = True):
         """Plot equity curves for all strategies.
@@ -296,7 +320,7 @@ class BacktestResults:
         df = pd.DataFrame(all_trades)
         df.to_csv(path, index=False)
 
-    def __getitem__(self, key: str) -> Dict[str, Any]:
+    def __getitem__(self, key: str) -> Dict[str, Any] | None:
         """Dict-style access for backward compatibility.
 
         :param key: Strategy name

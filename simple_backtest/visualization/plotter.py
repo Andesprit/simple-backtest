@@ -55,7 +55,7 @@ def _convert_results_to_dict(results) -> Dict[str, Dict[str, Any]]:
     return results
 
 
-def plot_equity_curve(results) -> go.Figure:
+def plot_equity_curve(results, show_drawdown: bool = False) -> go.Figure:
     """Plot equity curves for all strategies and benchmark.
 
     Args:
@@ -65,7 +65,17 @@ def plot_equity_curve(results) -> go.Figure:
         Plotly Figure with equity curves
     """
     results = _convert_results_to_dict(results)
-    fig = go.Figure()
+    fig = (
+        make_subplots(
+            rows=2,
+            cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.08,
+            row_heights=[0.7, 0.3],
+        )
+        if show_drawdown
+        else go.Figure()
+    )
 
     for i, (name, result) in enumerate(results.items()):
         portfolio_values = result["portfolio_values"]
@@ -77,29 +87,55 @@ def plot_equity_curve(results) -> go.Figure:
         else:
             line_style = dict(color=color, width=2)
 
-        fig.add_trace(
-            go.Scatter(
-                x=portfolio_values.index,
-                y=portfolio_values.values,
-                mode="lines",
-                name=name,
-                line=line_style,
-                hovertemplate="<b>%{fullData.name}</b><br>"
-                + "Date: %{x}<br>"
-                + "Value: $%{y:,.2f}<br>"
-                + "<extra></extra>",
-            )
+        equity_trace = go.Scatter(
+            x=portfolio_values.index,
+            y=portfolio_values.values,
+            mode="lines",
+            name=name,
+            line=line_style,
+            hovertemplate="<b>%{fullData.name}</b><br>"
+            + "Date: %{x}<br>"
+            + "Value: $%{y:,.2f}<br>"
+            + "<extra></extra>",
         )
+        if show_drawdown:
+            fig.add_trace(equity_trace, row=1, col=1)
+            running_max = portfolio_values.cummax()
+            drawdown = (portfolio_values - running_max) / running_max * 100
+            fig.add_trace(
+                go.Scatter(
+                    x=drawdown.index,
+                    y=drawdown.values,
+                    mode="lines",
+                    name=f"{name} drawdown",
+                    line=line_style,
+                    showlegend=False,
+                    hovertemplate="<b>%{fullData.name}</b><br>"
+                    + "Date: %{x}<br>"
+                    + "Drawdown: %{y:.2f}%<br>"
+                    + "<extra></extra>",
+                ),
+                row=2,
+                col=1,
+            )
+        else:
+            fig.add_trace(equity_trace)
 
     fig.update_layout(
         title="Portfolio Equity Curve",
-        xaxis_title="Date",
-        yaxis_title="Portfolio Value ($)",
         hovermode="x unified",
         template="plotly_white",
-        height=500,
+        height=700 if show_drawdown else 500,
         legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
     )
+    fig.update_xaxes(
+        title_text="Date", row=2 if show_drawdown else None, col=1 if show_drawdown else None
+    )
+    if show_drawdown:
+        fig.update_yaxes(title_text="Portfolio Value ($)", row=1, col=1)
+        fig.update_yaxes(title_text="Drawdown (%)", row=2, col=1)
+    else:
+        fig.update_yaxes(title_text="Portfolio Value ($)")
 
     return fig
 

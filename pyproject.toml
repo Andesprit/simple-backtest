@@ -4,13 +4,13 @@ version = "0.3.0"
 description = "Simple backtesting framework for trading strategies"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{name = "Luis Angarita", email = "guille2005_13@hotmail.com"}]
 keywords = ["backtesting", "trading", "finance", "algorithmic-trading"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -19,26 +19,27 @@ dependencies = [
     "pandas>=2.0.0",
     "numpy>=1.24.0",
     "pydantic>=2.0.0",
-    "pydantic-settings>=2.0.0",
     "plotly>=5.14.0",
     "joblib>=1.3.0",
     "tqdm>=4.65.0",
-    "scipy>=1.11.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
+    "mypy>=1.10.0",
     "ruff>=0.1.0",
-    "yfinance>=0.2.0",
-    "jupyter>=1.0.0",
-    "matplotlib>=3.7.0",
     "pre-commit>=3.5.0",
+]
+notebooks = [
+    "jupyter>=1.0.0",
+    "scikit-learn>=1.3.0",
+    "yfinance>=0.2.0",
 ]
 
 [build-system]
-requires = ["setuptools>=68.0.0"]
+requires = ["setuptools>=77.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -52,6 +53,11 @@ addopts = ["-ra", "--strict-markers"]
 [tool.coverage.run]
 source = ["simple_backtest"]
 
+[tool.coverage.report]
+fail_under = 75
+show_missing = true
+skip_covered = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
@@ -62,3 +68,10 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true

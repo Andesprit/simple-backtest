@@ -9,7 +9,9 @@ from simple_backtest.optimization import (
     RandomSearchOptimizer,
     WalkForwardOptimizer,
 )
+from simple_backtest.strategy.base import Strategy
 from simple_backtest.strategy.moving_average import MovingAverageStrategy
+from simple_backtest.utils.validation import StrategyExecutionError
 
 
 @pytest.fixture
@@ -138,6 +140,19 @@ class TestGridSearchOptimizer:
         sharpe_values = results["sharpe_ratio"].tolist()
         assert sharpe_values == sorted(sharpe_values, reverse=True)
 
+    def test_optimize_minimizes_risk_metrics(self, sample_data, backtest_config, param_space):
+        optimizer = GridSearchOptimizer(verbose=False)
+
+        results = optimizer.optimize(
+            data=sample_data,
+            config=backtest_config,
+            strategy_class=MovingAverageStrategy,
+            param_space=param_space,
+            metric="max_drawdown",
+        )
+
+        assert results["max_drawdown"].tolist() == sorted(results["max_drawdown"])
+
     def test_optimize_empty_param_space(self, sample_data, backtest_config):
         """Test behavior with empty parameter space."""
         optimizer = GridSearchOptimizer(verbose=False)
@@ -158,16 +173,43 @@ class TestGridSearchOptimizer:
         """Test behavior with invalid metric name."""
         optimizer = GridSearchOptimizer(verbose=False)
 
+        with pytest.raises(ValueError, match="Metric 'nonexistent_metric'"):
+            optimizer.optimize(
+                data=sample_data,
+                config=backtest_config,
+                strategy_class=MovingAverageStrategy,
+                param_space=param_space,
+                metric="nonexistent_metric",
+            )
+
+    def test_optimizer_does_not_swallow_strategy_runtime_errors(self, sample_data, backtest_config):
+        class ExplodingStrategy(Strategy):
+            def predict(self, data, trade_history):
+                raise RuntimeError("broken strategy")
+
+        optimizer = GridSearchOptimizer(verbose=False)
+
+        with pytest.raises(StrategyExecutionError, match="broken strategy"):
+            optimizer.optimize(
+                data=sample_data,
+                config=backtest_config,
+                strategy_class=ExplodingStrategy,
+                param_space={},
+            )
+
+    def test_optimizer_records_invalid_parameter_combinations(self, sample_data, backtest_config):
+        optimizer = GridSearchOptimizer(verbose=False)
+
         results = optimizer.optimize(
             data=sample_data,
             config=backtest_config,
             strategy_class=MovingAverageStrategy,
-            param_space=param_space,
-            metric="nonexistent_metric",
+            param_space={"short_window": [5, 30], "long_window": [20], "shares": [1]},
         )
 
-        # Should return results but possibly not sorted properly
-        assert isinstance(results, pd.DataFrame)
+        assert len(results) == 1
+        assert len(optimizer.failures) == 1
+        assert optimizer.failures[0]["parameters"]["short_window"] == 30
 
 
 class TestRandomSearchOptimizer:
@@ -284,6 +326,7 @@ class TestWalkForwardOptimizer:
         optimizer = WalkForwardOptimizer(train_size=0.7, verbose=False)
         assert optimizer.get_name() == "WalkForward"
         assert optimizer.train_size == 0.7
+        assert optimizer.n_splits == 3
         assert optimizer.verbose is False
 
     def test_invalid_train_size(self):
@@ -293,6 +336,10 @@ class TestWalkForwardOptimizer:
 
         with pytest.raises(ValueError, match="train_size must be between 0 and 1"):
             WalkForwardOptimizer(train_size=0.0)
+
+    def test_invalid_n_splits(self):
+        with pytest.raises(ValueError, match="n_splits must be positive"):
+            WalkForwardOptimizer(n_splits=0)
 
     def test_custom_name(self):
         """Test custom optimizer name."""
@@ -358,8 +405,9 @@ class TestWalkForwardOptimizer:
 
         assert "sharpe_ratio_diff" in results.columns
 
-    def test_optimize_sorted_by_test_metric(self, sample_data, backtest_config, param_space):
-        """Test that results are sorted by test metric (out-of-sample)."""
+    def test_optimize_returns_chronological_out_of_sample_folds(
+        self, sample_data, backtest_config, param_space
+    ):
         optimizer = WalkForwardOptimizer(train_size=0.7, verbose=False)
 
         results = optimizer.optimize(
@@ -370,9 +418,12 @@ class TestWalkForwardOptimizer:
             metric="sharpe_ratio",
         )
 
-        # Should be sorted by test_sharpe_ratio (more realistic)
-        test_sharpe_values = results["test_sharpe_ratio"].tolist()
-        assert test_sharpe_values == sorted(test_sharpe_values, reverse=True)
+        assert results["fold"].tolist() == [1, 2, 3]
+        assert results["test_start"].is_monotonic_increasing
+        assert results["test_end"].is_monotonic_increasing
+        assert (results["train_end"] < results["test_start"]).all()
+        assert results.loc[0, "train_start"] == sample_data.index[0]
+        assert results.loc[2, "test_end"] == sample_data.index[-1]
 
     def test_optimize_with_custom_base_optimizer(self, sample_data, backtest_config, param_space):
         """Test using custom base optimizer."""
@@ -389,9 +440,8 @@ class TestWalkForwardOptimizer:
             metric="sharpe_ratio",
         )
 
-        # Should have results from random search on train + test on all
         assert isinstance(results, pd.DataFrame)
-        assert not results.empty
+        assert len(results) == 3
 
     def test_train_test_split(self, sample_data, backtest_config, param_space):
         """Test that data is properly split into train/test."""
@@ -405,9 +455,15 @@ class TestWalkForwardOptimizer:
             metric="sharpe_ratio",
         )
 
-        # Results should contain both train and test metrics
         assert "train_sharpe_ratio" in results.columns
         assert "test_sharpe_ratio" in results.columns
-
-        # Train and test metrics should be different (different data periods)
-        assert not (results["train_sharpe_ratio"] == results["test_sharpe_ratio"]).all()
+        assert results["train_end"].tolist() == [
+            sample_data.index[119],
+            sample_data.index[145],
+            sample_data.index[172],
+        ]
+        assert results["test_start"].tolist() == [
+            sample_data.index[120],
+            sample_data.index[146],
+            sample_data.index[173],
+        ]

@@ -1,6 +1,7 @@
 """Base Strategy class using Strategy and Template Method design patterns."""
 
 from abc import ABC, abstractmethod
+from math import isfinite
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -9,15 +10,9 @@ import pandas as pd
 class Strategy(ABC):
     """Abstract base class for trading strategies.
 
-    ASSET-AGNOSTIC DESIGN:
-    This framework works with any tradable asset (stocks, forex, crypto, futures, etc.).
-    Throughout the codebase, "shares" refers to generic "units" or "quantity":
-    - For stocks: actual shares (e.g., 10.5 shares of AAPL)
-    - For forex: lot size or units (e.g., 100000 EUR/USD)
-    - For crypto: coins/tokens (e.g., 0.5 BTC)
-    - For futures: number of contracts (e.g., 2.5 ES contracts)
-
-    All quantities support fractional values (stored as floats).
+    Strategies trade one long-only, cash-funded instrument. Quantities support
+    fractional values, but the engine does not model shorts, leverage, margin,
+    derivatives contract multipliers, funding, or currency conversion.
 
     Implement predict() to define strategy logic. State persists within a backtest
     but is reset between runs.
@@ -42,7 +37,7 @@ class Strategy(ABC):
         """
         self._name = name or self.__class__.__name__
         self._state_initialized = False
-        self._portfolio_state = None  # Injected by backtest engine
+        self._portfolio_state: Dict[str, Any] | None = None  # Injected by backtest engine
 
     def get_name(self) -> str:
         """Return strategy name."""
@@ -201,6 +196,7 @@ class Strategy(ABC):
     def reset_state(self) -> None:
         """Reset internal state before new backtest run."""
         self._state_initialized = False
+        self._portfolio_state = None
 
     def validate_prediction(self, prediction: Dict[str, Any]) -> None:
         """Validate prediction format.
@@ -223,11 +219,19 @@ class Strategy(ABC):
             )
 
         size = prediction.get("size")
-        if not isinstance(size, (int, float)) or size < 0:
+        if (
+            not isinstance(size, (int, float))
+            or isinstance(size, bool)
+            or not isfinite(size)
+            or size < 0
+        ):
             raise ValueError(
                 f"Strategy {self._name} returned invalid size '{size}'. "
-                f"Must be a non-negative number."
+                f"Must be a finite non-negative number."
             )
+
+        if signal == "hold" and size != 0:
+            raise ValueError(f"Strategy {self._name} returned hold with non-zero size; use size 0")
 
         if signal == "sell":
             if "order_ids" not in prediction:

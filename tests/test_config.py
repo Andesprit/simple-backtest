@@ -16,7 +16,6 @@ def test_config_defaults():
     assert config.commission_type == "percentage"
     assert config.commission_value == 0.001
     assert config.execution_price == "open"
-    assert config.enable_caching is True
     assert config.parallel_execution is True
     assert config.n_jobs == -1
     assert config.risk_free_rate == 0.0
@@ -110,3 +109,31 @@ def test_config_validation_constraints():
     # Invalid execution price
     with pytest.raises(ValueError):
         BacktestConfig(execution_price="invalid")
+
+    with pytest.raises(ValueError):
+        BacktestConfig(commission_value=float("nan"))
+
+    with pytest.raises(ValueError):
+        BacktestConfig(commission_value=float("inf"))
+
+    with pytest.raises(ValueError):
+        BacktestConfig(initial_capital=float("inf"))
+
+    with pytest.raises(ValueError):
+        BacktestConfig(risk_free_rate=float("nan"))
+
+
+def test_config_rejects_unknown_or_removed_options():
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        BacktestConfig(enable_caching=True)
+
+
+def test_config_rejects_mixed_timezone_boundaries():
+    config = BacktestConfig(trading_start_date=datetime(2020, 2, 1))
+
+    with pytest.raises(ValueError, match="timezone awareness"):
+        config.validate_against_data(
+            data_start=datetime.fromisoformat("2020-01-01T00:00:00+00:00"),
+            data_end=datetime.fromisoformat("2021-01-01T00:00:00+00:00"),
+            total_rows=365,
+        )

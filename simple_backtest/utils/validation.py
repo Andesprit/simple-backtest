@@ -33,16 +33,38 @@ class StrategyError(BacktestError):
     pass
 
 
+class StrategyExecutionError(StrategyError, RuntimeError):
+    """A strategy callback or order failed during a backtest."""
+
+    def __init__(
+        self,
+        strategy_name: str,
+        timestamp: datetime,
+        stage: str,
+        cause: Exception,
+    ) -> None:
+        self.strategy_name = strategy_name
+        self.timestamp = timestamp
+        self.stage = stage
+        self.cause = cause
+        super().__init__(f"Strategy '{strategy_name}' {stage} failed at {timestamp}: {cause}")
+
+    def __reduce__(self):
+        """Preserve contextual constructor arguments across worker processes."""
+        serialized_cause = RuntimeError(f"{type(self.cause).__name__}: {self.cause}")
+        return (
+            type(self),
+            (self.strategy_name, self.timestamp, self.stage, serialized_cause),
+        )
+
+
 def validate_dataframe(
     data: pd.DataFrame, strict: bool = True, require_volume: bool = False
 ) -> None:
     """Validate DataFrame structure for backtesting with actionable error messages.
 
-    This framework is asset-agnostic and works with any OHLCV data:
-    - Stocks (AAPL, TSLA, etc.)
-    - Forex/Currencies (EUR/USD, GBP/JPY, etc.)
-    - Crypto (BTC, ETH, etc.)
-    - Futures (ES, CL, etc.)
+    The engine accepts one OHLC(V) series at a time. Its accounting model is
+    long-only and cash-funded; asset-specific mechanics are not inferred here.
 
     :param data: DataFrame to validate (OHLCV format)
     :param strict: If True, raise errors; if False, warn only
@@ -200,7 +222,7 @@ def validate_dataframe(
             )
 
     # Check for infinite values
-    inf_counts = data[required_columns].isin([float("inf"), float("-inf")]).sum()
+    inf_counts = data[cols_to_validate].isin([float("inf"), float("-inf")]).sum()
     if inf_counts.any():
         raise DataValidationError(
             f"DataFrame contains infinite values:\n{inf_counts[inf_counts > 0]}"
@@ -286,8 +308,16 @@ def validate_dataframe(
                 UserWarning,
             )
 
-    # Check for negative values
-    negative_values = (data[required_columns] < 0).any()
+    price_columns = ["Open", "High", "Low", "Close"]
+    nonpositive_prices = (data[price_columns] <= 0).any()
+    if nonpositive_prices.any():
+        raise DataValidationError(
+            "Price columns must be strictly positive. Invalid columns: "
+            f"{nonpositive_prices[nonpositive_prices].index.tolist()}"
+        )
+
+    # Prices and volume cannot be negative; zero volume is valid.
+    negative_values = (data[cols_to_validate] < 0).any()
     if negative_values.any():
         raise DataValidationError(
             f"DataFrame contains negative values in columns: "

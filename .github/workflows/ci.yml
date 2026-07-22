@@ -6,46 +6,73 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Install uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - name: Install test dependencies
+        run: uv sync --extra dev --frozen
+      - name: Run tests
+        run: uv run --frozen pytest
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v3
-
-    - name: Set up Python ${{ matrix.python-version }}
-      run: uv python install ${{ matrix.python-version }}
-
-    - name: Install dependencies
-      run: uv sync --all-extras
-
-    - name: Run tests
-      run: uv run pytest tests/ -v --cov=simple_backtest
-
-    - name: Lint
-      run: uv run ruff check simple_backtest
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Install quality dependencies
+        run: uv sync --extra dev --frozen
+      - name: Lint
+        run: uv run --frozen ruff check .
+      - name: Check formatting
+        run: uv run --frozen ruff format --check .
+      - name: Type check
+        run: uv run --frozen mypy simple_backtest
+      - name: Test coverage
+        run: uv run --frozen pytest --cov=simple_backtest --cov-report=term-missing
 
   build:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, quality]
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v3
-
-    - name: Build package
-      run: uv build
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: dist
-        path: dist/
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.12"
+      - name: Build and validate package
+        run: |
+          uv build
+          uvx twine check dist/*
+          uv venv /tmp/simple-backtest-wheel
+          uv pip install --python /tmp/simple-backtest-wheel/bin/python dist/*.whl
+          /tmp/simple-backtest-wheel/bin/python -c "import simple_backtest; print(simple_backtest.__version__)"
+      - name: Upload validated distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error

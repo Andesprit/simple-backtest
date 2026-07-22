@@ -2,13 +2,12 @@
 
 # Simple Backtest
 
-**A high-performance backtesting framework for trading strategies**
+**A small, transparent backtesting framework for long-only strategies**
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-[![Test Coverage](https://img.shields.io/badge/coverage-69%25-brightgreen.svg)](https://github.com/LGuillermoAngaritaG/simple-backtest)
-[![Tests](https://img.shields.io/badge/tests-247%20passed-success.svg)](https://github.com/LGuillermoAngaritaG/simple-backtest)
+[![CI](https://github.com/LGuillermoAngaritaG/simple-backtest/actions/workflows/ci.yml/badge.svg)](https://github.com/LGuillermoAngaritaG/simple-backtest/actions/workflows/ci.yml)
 
 [Features](#-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Examples](#-examples)
 
@@ -31,7 +30,7 @@ Simple Backtest is a Python framework designed to make backtesting trading strat
 ### 🚀 Performance
 - **Parallel Execution**: Test multiple strategies simultaneously
 - **Optimized Core**: Fast backtesting engine with efficient portfolio tracking
-- **Caching Support**: Speed up repeated backtests
+- **Efficient Accounting**: Constant-time position totals and optional strategy parallelism
 
 </td>
 <td width="50%">
@@ -49,7 +48,7 @@ Simple Backtest is a Python framework designed to make backtesting trading strat
 ### 🎯 Design
 - **Clean Architecture**: Strategy Pattern for extensibility
 - **Type Safety**: Pydantic validation for configurations
-- **Asset Agnostic**: Stocks, forex, crypto, futures, commodities
+- **Explicit Scope**: One long-only, cash-funded instrument per backtest
 
 </td>
 <td width="50%">
@@ -65,16 +64,18 @@ Simple Backtest is a Python framework designed to make backtesting trading strat
 
 ### Supported Assets
 
-Works with any asset providing OHLC(V) price data:
+Works with one OHLC(V) price series at a time. The accounting model supports
+long-only, cash-funded spot instruments; it does not model short selling,
+margin, leverage, borrowing, contract multipliers, funding, or FX conversion.
 
 | Asset Type | Support | Notes |
 |------------|---------|-------|
-| 📈 **Stocks** | ✅ Full | Fractional or whole shares |
-| 💱 **Forex** | ✅ Full | Volume optional |
-| ₿ **Crypto** | ✅ Full | Fractional units supported |
-| 📊 **ETFs** | ✅ Full | Same as stocks |
-| 🛢️ **Commodities** | ✅ Full | Gold, oil, etc. |
-| 📉 **Futures** | ⚠️ Partial | No margin/leverage modeling |
+| 📈 **Stocks** | ✅ Supported | Long-only; fractional or whole shares |
+| ₿ **Spot crypto** | ✅ Supported | Long-only fractional units |
+| 📊 **ETFs** | ✅ Supported | Same accounting as stocks |
+| 💱 **Forex** | ⚠️ Price signals only | No lots, leverage, rollover, or currency conversion |
+| 🛢️ **Commodities** | ⚠️ Price signals only | No physical/contract mechanics |
+| 📉 **Futures** | ❌ Accounting unsupported | No margin, multipliers, expiry, or roll logic |
 | 📊 **Options** | ❌ No | Requires Greeks, strikes, expiration |
 
 ## 📓 Examples
@@ -88,7 +89,7 @@ Explore comprehensive examples in Jupyter notebooks. Click "Open in Colab" to ru
 | **01_basic_usage.ipynb** | Introduction, data loading, commission setup, strategy comparison | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LGuillermoAngaritaG/simple-backtest/blob/main/notebooks/01_basic_usage.ipynb) |
 | **02_candle_strategies.ipynb** | Candlestick patterns (Engulfing, Hammer, Doji, etc.) | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LGuillermoAngaritaG/simple-backtest/blob/main/notebooks/02_candle_strategies.ipynb) |
 | **03_ta_strategies.ipynb** | Technical indicators (RSI, MACD, Bollinger Bands, etc.) | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LGuillermoAngaritaG/simple-backtest/blob/main/notebooks/03_ta_strategies.ipynb) |
-| **04_ml_strategies.ipynb** | Machine learning strategies (Logistic Regression, Random Forest, XGBoost) | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LGuillermoAngaritaG/simple-backtest/blob/main/notebooks/04_ml_strategies.ipynb) |
+| **04_ml_strategies.ipynb** | Machine learning strategies (Logistic Regression, Random Forest, Gradient Boosting) | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LGuillermoAngaritaG/simple-backtest/blob/main/notebooks/04_ml_strategies.ipynb) |
 | **05_commission_usage.ipynb** | Commission models comparison and custom implementations | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LGuillermoAngaritaG/simple-backtest/blob/main/notebooks/05_commission_usage.ipynb) |
 | **06_advanced_optimization.ipynb** | Grid search, random search, walk-forward optimization | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LGuillermoAngaritaG/simple-backtest/blob/main/notebooks/06_advanced_optimization.ipynb) |
 
@@ -105,7 +106,7 @@ uv add simple-backtest
 # From source
 git clone https://github.com/LGuillermoAngaritaG/simple-backtest.git
 cd simple-backtest
-uv sync --all-extras
+uv sync --extra dev --extra notebooks
 ```
 
 **Requirements**: Python 3.10+
@@ -138,7 +139,7 @@ print(results.get_strategy(strategy.get_name()).summary())
 Total Return: 227.91%
 CAGR: 36.84%
 Sharpe Ratio: 1.09
-Max Drawdown: -30.60%
+Max Drawdown: 30.60%
 Win Rate: 100.00%
 ```
 
@@ -200,7 +201,7 @@ from simple_backtest import BacktestConfig
 # Zero commission (for testing)
 config = BacktestConfig.zero_commission(initial_capital=10000)
 
-# High-frequency trading (short lookback, flat commission, VWAP execution)
+# Dense bar-data preset (not a latency/order-book HFT simulator)
 config = BacktestConfig.high_frequency(initial_capital=100000)
 
 # Swing trading (longer lookback, typical retail commission)
@@ -276,7 +277,7 @@ print(results.head(5))
 **Available Optimizers:**
 - `GridSearchOptimizer` - Exhaustive search (best for small spaces)
 - `RandomSearchOptimizer` - Random sampling (faster for large spaces)
-- `WalkForwardOptimizer` - Train/test split (prevents overfitting)
+- `WalkForwardOptimizer` - Expanding training windows with chronological out-of-sample folds
 
 ### Custom Commission Models
 
@@ -303,11 +304,24 @@ class TieredWithMinimum(Commission):
 
         return commission
 
-# Use in config
-from simple_backtest import Portfolio
-portfolio = Portfolio(10000)
-portfolio.commission_calculator = TieredWithMinimum()
+# Pass custom behavior explicitly to Backtest
+from simple_backtest import Backtest, BacktestConfig
+
+config = BacktestConfig.default(
+    commission_type="custom",
+    commission_value=0.0,
+)
+backtest = Backtest(data, config, commission_calculator=TieredWithMinimum())
+results = backtest.run([strategy])
 ```
+
+Custom commission callbacks must be deterministic and side-effect free because
+the engine evaluates them for benchmark affordability as well as strategy fills.
+
+For a custom execution price, set `execution_price="custom"` and pass
+`execution_price_extractor=` to `Backtest`. Strategy exceptions raise with
+strategy/date/stage context by default; use `error_policy="continue"` only when
+you intentionally want structured diagnostics in `StrategyResult.errors`.
 
 ### Logging Control
 
@@ -336,7 +350,6 @@ The framework calculates 20+ metrics automatically:
 ### Returns
 - Total Return (%)
 - CAGR (Compound Annual Growth Rate)
-- Annualized Return
 
 ### Risk Metrics
 - Volatility (annualized standard deviation)
@@ -350,7 +363,6 @@ The framework calculates 20+ metrics automatically:
 - Total Trades
 - Win Rate (%)
 - Profit Factor
-- Average Trade P&L
 - Trade Expectancy
 - Average Win / Average Loss
 
@@ -358,7 +370,6 @@ The framework calculates 20+ metrics automatically:
 - Alpha (excess return vs benchmark)
 - Beta (correlation with benchmark)
 - Information Ratio
-- Correlation with benchmark
 
 
 ## 🛠️ Development
@@ -371,7 +382,7 @@ git clone https://github.com/LGuillermoAngaritaG/simple-backtest.git
 cd simple-backtest
 
 # Install with uv (recommended)
-uv sync --all-extras
+uv sync --extra dev
 
 # Or with pip
 pip install -e ".[dev]"
@@ -397,13 +408,13 @@ uv run pytest tests/test_strategy.py::test_strategy_initialization
 
 ```bash
 # Lint code
-uv run ruff check simple_backtest
+uv run ruff check .
 
 # Auto-fix linting issues
-uv run ruff check simple_backtest --fix
+uv run ruff check . --fix
 
 # Format code
-uv run ruff format simple_backtest
+uv run ruff format .
 
 # Run pre-commit hooks
 pre-commit run --all-files
@@ -431,7 +442,7 @@ Contributions are welcome! Whether you're fixing bugs, adding features, or impro
 2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
 3. **Make your changes**
 4. **Run tests**: `uv run pytest`
-5. **Run linting**: `uv run ruff check simple_backtest`
+5. **Run linting**: `uv run ruff check . && uv run ruff format --check .`
 6. **Commit your changes**: `git commit -m "Add amazing feature"`
 7. **Push to branch**: `git push origin feature/amazing-feature`
 8. **Open a Pull Request**

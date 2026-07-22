@@ -76,6 +76,17 @@ def test_validate_prediction_invalid_size():
     with pytest.raises(ValueError, match="invalid size"):
         strategy.validate_prediction({"signal": "buy", "size": "ten"})
 
+    for invalid_size in [float("nan"), float("inf"), True]:
+        with pytest.raises(ValueError, match="finite non-negative number"):
+            strategy.validate_prediction({"signal": "buy", "size": invalid_size})
+
+
+def test_validate_prediction_hold_requires_zero_size():
+    strategy = DummyStrategy()
+
+    with pytest.raises(ValueError, match="hold.*size 0"):
+        strategy.validate_prediction({"signal": "hold", "size": 1})
+
 
 def test_validate_prediction_sell_without_order_ids():
     """Test sell signal requires order_ids key."""
@@ -89,10 +100,12 @@ def test_strategy_reset_state():
     """Test strategy state reset."""
     strategy = DummyStrategy()
     strategy._state_initialized = True
+    strategy._portfolio_state = {"cash": 100}
 
     strategy.reset_state()
 
     assert strategy._state_initialized is False
+    assert strategy._portfolio_state is None
 
 
 def test_on_trade_executed_hook():

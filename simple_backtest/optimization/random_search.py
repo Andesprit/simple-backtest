@@ -7,6 +7,8 @@ import pandas as pd
 from tqdm import tqdm
 
 from simple_backtest.config.settings import BacktestConfig
+from simple_backtest.core.backtest import Backtest
+from simple_backtest.metrics.objectives import metric_is_maximized
 from simple_backtest.optimization.base import Optimizer
 from simple_backtest.strategy.base import Strategy
 from simple_backtest.utils.logger import get_logger
@@ -39,9 +41,9 @@ class RandomSearchOptimizer(Optimizer):
     def __init__(
         self,
         n_iter: int = 100,
-        random_state: int = None,
+        random_state: int | None = None,
         verbose: bool = True,
-        name: str = None,
+        name: str | None = None,
     ):
         """Initialize random search optimizer.
 
@@ -55,8 +57,7 @@ class RandomSearchOptimizer(Optimizer):
         self.random_state = random_state
         self.verbose = verbose
 
-        if random_state is not None:
-            random.seed(random_state)
+        self._random = random.Random(random_state)
 
     def optimize(
         self,
@@ -76,7 +77,9 @@ class RandomSearchOptimizer(Optimizer):
         :return: DataFrame of results sorted by metric
         """
         results = []
+        self.failures = []
         param_names = list(param_space.keys())
+        backtest = Backtest(data, config)
 
         if self.verbose:
             logger.info(f"Testing {self.n_iter} random parameter combinations...")
@@ -88,22 +91,18 @@ class RandomSearchOptimizer(Optimizer):
 
         for _ in iterator:
             # Sample random values for each parameter
-            param_dict = {name: random.choice(param_space[name]) for name in param_names}
+            param_dict = {name: self._random.choice(param_space[name]) for name in param_names}
 
             try:
-                # Create strategy with these parameters
                 strategy = strategy_class(**param_dict)
-
-                # Run backtest
-                metrics = self._run_backtest(data, config, strategy)
-
-                # Store results
-                results.append({**param_dict, **metrics})
-
-            except Exception as e:
+            except (TypeError, ValueError) as error:
+                self._record_failure(param_dict, error)
                 if self.verbose:
-                    logger.warning(f"Error with params {param_dict}: {e}")
+                    logger.warning(f"Invalid params {param_dict}: {error}")
                 continue
+
+            metrics = self._run_backtest(data, config, strategy, backtest=backtest)
+            results.append({**param_dict, **metrics})
 
         # Create DataFrame
         df = pd.DataFrame(results)
@@ -113,8 +112,8 @@ class RandomSearchOptimizer(Optimizer):
             return df
 
         if metric not in df.columns:
-            logger.warning(f"Metric '{metric}' not found. Available metrics: {list(df.columns)}")
-            return df
+            raise ValueError(f"Metric '{metric}' not found. Available metrics: {list(df.columns)}")
 
-        # Sort by metric (descending)
-        return df.sort_values(metric, ascending=False).reset_index(drop=True)
+        return df.sort_values(metric, ascending=not metric_is_maximized(metric)).reset_index(
+            drop=True
+        )

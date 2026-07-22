@@ -96,7 +96,7 @@ Advanced parameter optimization techniques:
 
 ```bash
 # Install dependencies with uv (recommended)
-uv sync --all-extras
+uv sync --extra notebooks
 
 # Or with pip
 pip install jupyter yfinance scikit-learn
@@ -139,7 +139,7 @@ Navigate to the notebooks directory and open any notebook to begin!
 
 - **Run cells sequentially** - Notebooks build on previous cells
 - **Experiment with parameters** - Change values and see what happens
-- **Save your work** - Notebooks are not version controlled
+- **Save your work** - Commit useful source cells; keep generated outputs stripped
 - **Check data availability** - yfinance may have rate limits
 - **Use different tickers** - Try your favorite stocks/ETFs
 
@@ -237,7 +237,7 @@ After completing the notebooks:
 
 1. **Build your own strategy** - Combine techniques you've learned
 2. **Optimize parameters** - Find the best settings for your strategy
-3. **Test on different assets** - Stocks, forex, crypto, futures
+3. **Test on different spot instruments** - Respect the long-only, cash-funded scope
 4. **Paper trade** - Test in real-time without risk
 5. **Share your results** - Help others learn from your experience
 

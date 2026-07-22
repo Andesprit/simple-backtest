@@ -79,9 +79,9 @@ class TestTieredCommissionFunction:
         assert commission == pytest.approx(6.5)
 
     def test_empty_tiers(self):
-        """Test with empty tiers list."""
-        commission = tiered_commission(shares=10, price=100, tiers=[])
-        assert commission == 0.0
+        """An incomplete schedule is rejected instead of undercharging."""
+        with pytest.raises(ValueError, match="final"):
+            tiered_commission(shares=10, price=100, tiers=[])
 
 
 class TestGetCommissionCalculator:
@@ -144,18 +144,15 @@ class TestGetCommissionCalculator:
             )
 
     def test_custom_type(self):
-        """Test creating custom commission calculator."""
+        """Custom mode requires the callable accepted by Backtest."""
         config = BacktestConfig(
             initial_capital=10000,
             lookback_period=30,
             commission_type="custom",
             commission_value=0.0,
         )
-        calculator = get_commission_calculator(config)
-
-        # Custom type returns zero by default
-        commission = calculator(100, 50)
-        assert commission == 0.0
+        with pytest.raises(ValueError, match="commission_calculator must be provided"):
+            get_commission_calculator(config)
 
     def test_invalid_type(self):
         """Test that invalid commission type raises validation error."""
@@ -204,6 +201,14 @@ class TestCreateCustomCommission:
         wrapped = create_custom_commission(zero_commission)
         commission = wrapped(100, 50)
         assert commission == 0.0
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), "free"])
+    def test_non_finite_or_non_numeric_commission_raises_error(self, value):
+        """Custom callbacks cannot inject invalid accounting values."""
+        wrapped = create_custom_commission(lambda shares, price: value)
+
+        with pytest.raises(ValueError, match="finite number"):
+            wrapped(100, 50)
 
     def test_complex_custom_logic(self):
         """Test wrapping complex custom commission logic."""

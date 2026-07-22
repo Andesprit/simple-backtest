@@ -1,6 +1,11 @@
-"""Backtesting Framework - High-performance backtesting for trading strategies."""
+"""A small, transparent framework for long-only strategy backtests."""
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("simple-backtest")
+except PackageNotFoundError:  # Source tree imported without installation.
+    __version__ = "0.3.0"
 
 # Core imports
 # Commission imports

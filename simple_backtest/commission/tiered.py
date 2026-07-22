@@ -1,5 +1,6 @@
 """Tiered commission based on trade value."""
 
+from math import isfinite
 from typing import List, Tuple
 
 from simple_backtest.commission.base import Commission
@@ -27,7 +28,7 @@ class TieredCommission(Commission):
         cost2 = commission.calculate(100, 60)  # = $2 + $4 + $0.50 = $6.50
     """
 
-    def __init__(self, tiers: List[Tuple[float, float]], name: str = None):
+    def __init__(self, tiers: List[Tuple[float, float]], name: str | None = None):
         """Initialize tiered commission.
 
         :param tiers: List of (threshold, rate) tuples, sorted by threshold
@@ -41,6 +42,12 @@ class TieredCommission(Commission):
         # Validate tiers
         prev_threshold = 0.0
         for i, (threshold, rate) in enumerate(tiers):
+            if not isinstance(threshold, (int, float)) or isinstance(threshold, bool):
+                raise ValueError(f"Tier {i}: threshold must be a finite number or infinity")
+            if not isinstance(rate, (int, float)) or isinstance(rate, bool) or not isfinite(rate):
+                raise ValueError(f"Tier {i}: rate must be finite")
+            if threshold != float("inf") and not isfinite(threshold):
+                raise ValueError(f"Tier {i}: threshold must be finite or positive infinity")
             if threshold <= prev_threshold and threshold != float("inf"):
                 raise ValueError(
                     f"Tier {i}: thresholds must be in ascending order. "
@@ -51,6 +58,9 @@ class TieredCommission(Commission):
                 raise ValueError(f"Tier {i}: rate must be non-negative, got {rate}")
 
             prev_threshold = threshold
+
+        if tiers[-1][0] != float("inf"):
+            raise ValueError("Tiers must end with a (float('inf'), rate) tier")
 
         self.tiers = tiers
 

@@ -23,12 +23,23 @@ class Optimizer(ABC):
                 return results_df
     """
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: str | None = None):
         """Initialize optimizer.
 
         :param name: Optimizer name (auto-generated if None)
         """
         self._name = name or self.__class__.__name__
+        self.failures: List[Dict[str, Any]] = []
+
+    def _record_failure(self, parameters: Dict[str, Any], error: Exception) -> None:
+        """Record an expected invalid parameter combination."""
+        self.failures.append(
+            {
+                "parameters": parameters.copy(),
+                "error_type": type(error).__name__,
+                "message": str(error),
+            }
+        )
 
     @abstractmethod
     def optimize(
@@ -59,6 +70,7 @@ class Optimizer(ABC):
         data: pd.DataFrame,
         config: BacktestConfig,
         strategy: Strategy,
+        backtest: Backtest | None = None,
     ) -> Dict[str, Any]:
         """Helper to run a single backtest and return metrics.
 
@@ -67,7 +79,7 @@ class Optimizer(ABC):
         :param strategy: Strategy instance to test
         :return: Dict with parameters and metrics
         """
-        bt = Backtest(data, config)
+        bt = backtest or Backtest(data, config)
         results = bt.run([strategy])
         strategy_result = results.get_strategy(strategy.get_name())
         return strategy_result.metrics

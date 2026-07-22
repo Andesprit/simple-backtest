@@ -1,5 +1,7 @@
 """Flat fee commission."""
 
+from math import isfinite
+
 from simple_backtest.commission.base import Commission
 
 
@@ -17,7 +19,7 @@ class FlatCommission(Commission):
         cost2 = commission.calculate(100, 50)  # Returns 5.0
     """
 
-    def __init__(self, fee: float, name: str = None):
+    def __init__(self, fee: float, name: str | None = None):
         """Initialize flat commission.
 
         :param fee: Flat fee per trade
@@ -25,6 +27,8 @@ class FlatCommission(Commission):
         """
         super().__init__(name=name or f"Flat(${fee:.2f})")
 
+        if not isinstance(fee, (int, float)) or isinstance(fee, bool) or not isfinite(fee):
+            raise ValueError(f"Commission fee must be finite, got {fee}")
         if fee < 0:
             raise ValueError(f"Commission fee must be non-negative, got {fee}")
 

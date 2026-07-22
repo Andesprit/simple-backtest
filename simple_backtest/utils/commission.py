@@ -1,5 +1,6 @@
 """Commission calculation functions."""
 
+from math import isfinite
 from typing import Callable, List, Tuple
 
 from simple_backtest.config.settings import BacktestConfig
@@ -35,6 +36,9 @@ def tiered_commission(shares: float, price: float, tiers: List[Tuple[float, floa
     :param tiers: List of (threshold, rate) tuples sorted by threshold
     :return: Commission amount
     """
+    if not tiers or tiers[-1][0] != float("inf"):
+        raise ValueError("Tiered commissions require a final (float('inf'), rate) tier")
+
     trade_value = shares * price
     commission = 0.0
     prev_threshold = 0.0
@@ -59,35 +63,27 @@ def get_commission_calculator(config: BacktestConfig) -> Callable[[float, float]
     :return: Commission function (shares, price) -> commission
     """
     if config.commission_type == "percentage":
-        rate = config.commission_value
+        if isinstance(config.commission_value, list):
+            raise ValueError("Percentage commission_value must be numeric")
+        rate = float(config.commission_value)
         return lambda shares, price: percentage_commission(shares, price, rate)
 
     elif config.commission_type == "flat":
-        flat_fee = config.commission_value
+        if isinstance(config.commission_value, list):
+            raise ValueError("Flat commission_value must be numeric")
+        flat_fee = float(config.commission_value)
         return lambda shares, price: flat_commission(shares, price, flat_fee)
 
     elif config.commission_type == "tiered":
-        # For tiered, commission_value should be a list of tuples
-        # In practice, this would be parsed from config or passed separately
-        # For now, we'll create a default tiered structure
-        if isinstance(config.commission_value, list):
-            tiers = config.commission_value
-        else:
-            # Default tiered structure if single value provided
-            # Use value as base rate with scaling tiers
-            base_rate = config.commission_value
-            tiers = [
-                (1000, base_rate * 2),
-                (5000, base_rate),
-                (float("inf"), base_rate * 0.5),
-            ]
+        if not isinstance(config.commission_value, list):
+            raise ValueError("Tiered commission_value must be a tier list")
+        tiers = config.commission_value
         return lambda shares, price: tiered_commission(shares, price, tiers)
 
     elif config.commission_type == "custom":
-        # Custom commission requires a user-provided callable
-        # This would be passed separately, not through pydantic config
-        # Return zero commission as safe default
-        return lambda shares, price: 0.0
+        raise ValueError(
+            "commission_calculator must be provided to Backtest when commission_type='custom'"
+        )
 
     else:
         raise ValueError(
@@ -107,6 +103,12 @@ def create_custom_commission(
 
     def validated_commission(shares: float, price: float) -> float:
         commission = func(shares, price)
+        if (
+            not isinstance(commission, (int, float))
+            or isinstance(commission, bool)
+            or not isfinite(commission)
+        ):
+            raise ValueError(f"Commission must be a finite number, got {commission}")
         if commission < 0:
             raise ValueError(
                 f"Commission must be non-negative, got {commission} "

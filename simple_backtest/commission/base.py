@@ -1,6 +1,7 @@
 """Base commission class for trading costs."""
 
 from abc import ABC, abstractmethod
+from math import isfinite
 
 
 class Commission(ABC):
@@ -16,7 +17,7 @@ class Commission(ABC):
                 return commission_amount
     """
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: str | None = None):
         """Initialize commission calculator.
 
         :param name: Commission name (auto-generated if None)
@@ -47,6 +48,12 @@ class Commission(ABC):
         commission = self.calculate(shares, price)
 
         # Validate result
+        if (
+            not isinstance(commission, (int, float))
+            or isinstance(commission, bool)
+            or not isfinite(commission)
+        ):
+            raise ValueError(f"Commission must be a finite number, got {commission}")
         if commission < 0:
             raise ValueError(
                 f"Commission must be non-negative, got {commission} "

@@ -1,5 +1,7 @@
 """Percentage-based commission."""
 
+from math import isfinite
+
 from simple_backtest.commission.base import Commission
 
 
@@ -16,14 +18,16 @@ class PercentageCommission(Commission):
         cost = commission.calculate(100, 50)  # Returns 5.0 (0.1% of $5000)
     """
 
-    def __init__(self, rate: float, name: str = None):
+    def __init__(self, rate: float, name: str | None = None):
         """Initialize percentage commission.
 
         :param rate: Commission rate (e.g., 0.001 for 0.1%)
         :param name: Commission name
         """
-        super().__init__(name=name or f"Percentage({rate*100:.3f}%)")
+        super().__init__(name=name or f"Percentage({rate * 100:.3f}%)")
 
+        if not isinstance(rate, (int, float)) or isinstance(rate, bool) or not isfinite(rate):
+            raise ValueError(f"Commission rate must be finite, got {rate}")
         if rate < 0:
             raise ValueError(f"Commission rate must be non-negative, got {rate}")
 

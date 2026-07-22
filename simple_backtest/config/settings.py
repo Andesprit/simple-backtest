@@ -1,6 +1,7 @@
 """Backtest configuration with Pydantic validation."""
 
 from datetime import datetime
+from math import isfinite
 from typing import List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -9,19 +10,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 class BacktestConfig(BaseModel):
     """Backtest configuration with validation.
 
-    This framework is asset-agnostic and supports:
-    - Stocks (fractional or whole shares)
-    - Forex/Currencies (fractional units)
-    - Futures contracts
-    - Crypto (fractional coins/tokens)
-    - Any other tradable asset
-
-    Note: Throughout the codebase, "shares" refers to generic "units" or "quantity"
-    of any asset type (e.g., 1.5 BTC, 100.25 EUR/USD lots, 0.5 shares of AAPL).
+    The engine models one long-only, cash-funded instrument. ``shares`` means
+    generic units, so spot stocks, ETFs, and crypto can use fractional amounts.
+    Margin, leverage, short selling, contract multipliers, funding, and FX
+    conversion are intentionally outside this accounting model.
     """
 
     initial_capital: float = Field(
-        default=1000.0, gt=0, description="Starting capital (in base currency)"
+        default=1000.0,
+        gt=0,
+        allow_inf_nan=False,
+        description="Starting capital (in base currency)",
     )
     lookback_period: int = Field(default=30, ge=1, description="Historical ticks for context")
     commission_type: Literal["percentage", "flat", "tiered", "custom"] = Field(
@@ -36,13 +35,27 @@ class BacktestConfig(BaseModel):
     )
     trading_start_date: Optional[datetime] = Field(default=None, description="Trading period start")
     trading_end_date: Optional[datetime] = Field(default=None, description="Trading period end")
-    enable_caching: bool = Field(default=True, description="Enable caching")
     parallel_execution: bool = Field(default=True, description="Parallel strategy execution")
     n_jobs: int = Field(default=-1, description="Number of parallel jobs (-1 = all cores)")
-    risk_free_rate: float = Field(default=0.0, ge=0, le=1, description="Annual risk-free rate")
+    show_progress: bool = Field(default=False, description="Display progress bars")
+    error_policy: Literal["raise", "continue"] = Field(
+        default="raise", description="Raise strategy errors or collect diagnostics and continue"
+    )
+    periods_per_year: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="Annualization factor; inferred from the DatetimeIndex when omitted",
+    )
+    risk_free_rate: float = Field(
+        default=0.0,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+        description="Annual risk-free rate",
+    )
     asset_type: Optional[str] = Field(
         default=None,
-        description="Asset type for documentation (e.g., 'stock', 'forex', 'crypto', 'futures'). Optional, for clarity only.",
+        description="Optional descriptive label only; it does not alter accounting behavior",
     )
 
     @field_validator("n_jobs")
@@ -57,6 +70,12 @@ class BacktestConfig(BaseModel):
     def validate_date_range(self) -> "BacktestConfig":
         """Validate date range logic."""
         if self.trading_start_date and self.trading_end_date:
+            self._require_matching_timezone(
+                self.trading_start_date,
+                self.trading_end_date,
+                "trading_start_date",
+                "trading_end_date",
+            )
             if self.trading_start_date >= self.trading_end_date:
                 raise ValueError(
                     f"trading_start_date ({self.trading_start_date}) must be before "
@@ -90,6 +109,9 @@ class BacktestConfig(BaseModel):
                         f"Tier {i}: threshold and rate must be numeric, got ({threshold}, {rate})"
                     )
 
+                if (threshold != float("inf") and not isfinite(threshold)) or not isfinite(rate):
+                    raise ValueError(f"Tier {i}: threshold and rate must be finite")
+
                 if threshold <= prev_threshold and threshold != float("inf"):
                     raise ValueError(
                         f"Tier {i}: thresholds must be in ascending order. "
@@ -101,6 +123,11 @@ class BacktestConfig(BaseModel):
 
                 prev_threshold = threshold
 
+            if self.commission_value[-1][0] != float("inf"):
+                raise ValueError(
+                    "Tiered commission_value must end with a (float('inf'), rate) tier"
+                )
+
         else:
             # For non-tiered, must be a float >= 0
             if not isinstance(self.commission_value, (int, float)):
@@ -108,6 +135,9 @@ class BacktestConfig(BaseModel):
                     f"commission_value must be a number when commission_type='{self.commission_type}', "
                     f"got {type(self.commission_value).__name__}"
                 )
+
+            if not isfinite(self.commission_value):
+                raise ValueError("commission_value must be finite")
 
             if self.commission_value < 0:
                 raise ValueError(
@@ -131,6 +161,18 @@ class BacktestConfig(BaseModel):
                 f"lookback_period ({self.lookback_period}) must be less than "
                 f"total data rows ({total_rows})"
             )
+
+        for field_name, boundary in (
+            ("trading_start_date", self.trading_start_date),
+            ("trading_end_date", self.trading_end_date),
+        ):
+            if boundary is not None:
+                self._require_matching_timezone(
+                    boundary,
+                    data_start,
+                    field_name,
+                    "data index",
+                )
 
         # Validate trading start date
         if self.trading_start_date:
@@ -159,6 +201,21 @@ class BacktestConfig(BaseModel):
         # If trading_start_date is None, it will be automatically set to index[lookback_period]
         # in _setup_trading_range(), which is always valid
 
+    @staticmethod
+    def _require_matching_timezone(
+        first: datetime,
+        second: datetime,
+        first_name: str,
+        second_name: str,
+    ) -> None:
+        """Reject comparisons between timezone-naive and timezone-aware dates."""
+        first_aware = first.utcoffset() is not None
+        second_aware = second.utcoffset() is not None
+        if first_aware != second_aware:
+            raise ValueError(
+                f"{first_name} and {second_name} must have matching timezone awareness"
+            )
+
     @classmethod
     def default(cls, **overrides) -> "BacktestConfig":
         """Create config with sensible defaults.
@@ -180,7 +237,7 @@ class BacktestConfig(BaseModel):
             "risk_free_rate": 0.02,  # 2% annual
         }
         defaults.update(overrides)
-        return cls(**defaults)
+        return cls.model_validate(defaults)
 
     @classmethod
     def zero_commission(cls, **overrides) -> "BacktestConfig":
@@ -198,9 +255,10 @@ class BacktestConfig(BaseModel):
 
     @classmethod
     def high_frequency(cls, **overrides) -> "BacktestConfig":
-        """Create config for high-frequency trading strategies.
+        """Create a short-lookback configuration for dense bar data.
 
-        Short lookback period, flat commission, VWAP execution.
+        This convenience preset does not model latency, order books, slippage,
+        or other requirements of real high-frequency execution.
 
         :param overrides: Any config parameters to override
         :return: BacktestConfig optimized for HFT
@@ -255,6 +313,7 @@ class BacktestConfig(BaseModel):
         )
 
     model_config = ConfigDict(
+        extra="forbid",
         json_schema_extra={
             "example": {
                 "initial_capital": 10000.0,
@@ -264,10 +323,9 @@ class BacktestConfig(BaseModel):
                 "execution_price": "open",
                 "trading_start_date": "2020-01-01T00:00:00",
                 "trading_end_date": "2023-12-31T23:59:59",
-                "enable_caching": True,
                 "parallel_execution": True,
                 "n_jobs": -1,
                 "risk_free_rate": 0.02,
             }
-        }
+        },
     )

@@ -4,7 +4,6 @@ from typing import Any, Dict
 
 import numpy as np
 import pandas as pd
-from scipy import stats
 
 
 def calculate_total_return(initial_value: float, final_value: float) -> float:
@@ -46,7 +45,8 @@ def calculate_volatility(returns: pd.Series, periods_per_year: int = 252) -> flo
     Returns:
         Annualized volatility as percentage
     """
-    return returns.std() * np.sqrt(periods_per_year) * 100
+    std = returns.std()
+    return 0.0 if pd.isna(std) else std * np.sqrt(periods_per_year) * 100
 
 
 def calculate_sharpe_ratio(
@@ -68,7 +68,7 @@ def calculate_sharpe_ratio(
     # Calculate excess returns
     excess_returns = returns - period_rf_rate
 
-    if excess_returns.std() == 0:
+    if pd.isna(excess_returns.std()) or excess_returns.std() == 0:
         return 0.0
 
     # Annualize
@@ -97,7 +97,7 @@ def calculate_sortino_ratio(
     # Calculate downside deviation (only negative returns)
     downside_returns = excess_returns[excess_returns < 0]
 
-    if len(downside_returns) == 0 or downside_returns.std() == 0:
+    if len(downside_returns) == 0 or pd.isna(downside_returns.std()) or downside_returns.std() == 0:
         return 0.0
 
     downside_std = downside_returns.std()
@@ -212,28 +212,10 @@ def calculate_expectancy(trade_history: list) -> float:
     return total_pnl / len(sell_trades)
 
 
-def calculate_exposure_time(trade_history: list, total_periods: int) -> float:
-    """Calculate percentage of time in market.
-
-    Args:
-        trade_history: List of trade dictionaries
-        total_periods: Total number of periods in backtest
-
-    Returns:
-        Exposure time as percentage
-    """
-    if total_periods == 0:
-        return 0.0
-
-    # Count periods with open positions
-    # This is simplified - assumes at least one position open when trades exist
-    periods_with_positions = len([t for t in trade_history if t.get("signal") in ["buy", "sell"]])
-
-    return (periods_with_positions / total_periods) * 100
-
-
 def calculate_alpha_beta(
-    strategy_returns: pd.Series, benchmark_returns: pd.Series
+    strategy_returns: pd.Series,
+    benchmark_returns: pd.Series,
+    periods_per_year: int = 252,
 ) -> Dict[str, float]:
     """Calculate alpha and beta relative to benchmark.
 
@@ -244,19 +226,19 @@ def calculate_alpha_beta(
     Returns:
         Dictionary with 'alpha' and 'beta'
     """
-    # Ensure same length
-    min_len = min(len(strategy_returns), len(benchmark_returns))
-    strategy_returns = strategy_returns.iloc[:min_len]
-    benchmark_returns = benchmark_returns.iloc[:min_len]
+    aligned = pd.concat(
+        [strategy_returns.rename("strategy"), benchmark_returns.rename("benchmark")],
+        axis=1,
+        join="inner",
+    ).dropna()
 
-    if len(strategy_returns) < 2:
+    if len(aligned) < 2 or aligned["benchmark"].var() == 0:
         return {"alpha": 0.0, "beta": 0.0}
 
-    # Calculate beta using linear regression
-    slope, intercept, _, _, _ = stats.linregress(benchmark_returns, strategy_returns)
-
-    beta = slope
-    alpha = intercept * 252 * 100  # Annualize alpha
+    covariance = aligned["strategy"].cov(aligned["benchmark"])
+    beta = covariance / aligned["benchmark"].var()
+    intercept = aligned["strategy"].mean() - beta * aligned["benchmark"].mean()
+    alpha = intercept * periods_per_year * 100
 
     return {"alpha": alpha, "beta": beta}
 
@@ -274,15 +256,18 @@ def calculate_information_ratio(
     Returns:
         Information Ratio
     """
-    # Ensure same length
-    min_len = min(len(strategy_returns), len(benchmark_returns))
-    strategy_returns = strategy_returns.iloc[:min_len]
-    benchmark_returns = benchmark_returns.iloc[:min_len]
+    aligned = pd.concat(
+        [strategy_returns.rename("strategy"), benchmark_returns.rename("benchmark")],
+        axis=1,
+        join="inner",
+    ).dropna()
+    if aligned.empty:
+        return 0.0
 
     # Calculate tracking error (excess returns)
-    tracking_error = strategy_returns - benchmark_returns
+    tracking_error = aligned["strategy"] - aligned["benchmark"]
 
-    if tracking_error.std() == 0:
+    if pd.isna(tracking_error.std()) or tracking_error.std() == 0:
         return 0.0
 
     # Annualize

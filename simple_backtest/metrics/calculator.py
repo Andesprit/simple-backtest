@@ -13,6 +13,8 @@ def calculate_metrics(
     benchmark_values: pd.Series,
     initial_capital: float,
     risk_free_rate: float = 0.0,
+    periods_per_year: int = 252,
+    exposure: pd.Series | None = None,
 ) -> Dict[str, float]:
     """Calculate comprehensive performance metrics.
 
@@ -59,16 +61,16 @@ def calculate_metrics(
         years = days / 365.25
     else:
         # Assume daily data if no datetime index
-        years = len(portfolio_values) / 252
+        years = len(portfolio_values) / periods_per_year
 
     # Returns metrics
     total_return = defs.calculate_total_return(initial_capital, final_value)
     cagr = defs.calculate_cagr(initial_capital, final_value, years)
 
     # Risk metrics
-    volatility = defs.calculate_volatility(strategy_returns)
-    sharpe_ratio = defs.calculate_sharpe_ratio(strategy_returns, risk_free_rate)
-    sortino_ratio = defs.calculate_sortino_ratio(strategy_returns, risk_free_rate)
+    volatility = defs.calculate_volatility(strategy_returns, periods_per_year)
+    sharpe_ratio = defs.calculate_sharpe_ratio(strategy_returns, risk_free_rate, periods_per_year)
+    sortino_ratio = defs.calculate_sortino_ratio(strategy_returns, risk_free_rate, periods_per_year)
 
     # Drawdown metrics
     drawdown_metrics = defs.calculate_max_drawdown(portfolio_values)
@@ -93,11 +95,17 @@ def calculate_metrics(
     expectancy = defs.calculate_expectancy(trade_history)
 
     # Portfolio metrics
-    exposure_time = defs.calculate_exposure_time(trade_history, len(portfolio_values))
+    exposure_time = (
+        float(exposure.astype(bool).mean() * 100)
+        if exposure is not None and not exposure.empty
+        else 0.0
+    )
 
     # Benchmark comparison
-    alpha_beta = defs.calculate_alpha_beta(strategy_returns, benchmark_returns)
-    information_ratio = defs.calculate_information_ratio(strategy_returns, benchmark_returns)
+    alpha_beta = defs.calculate_alpha_beta(strategy_returns, benchmark_returns, periods_per_year)
+    information_ratio = defs.calculate_information_ratio(
+        strategy_returns, benchmark_returns, periods_per_year
+    )
 
     return {
         # Returns

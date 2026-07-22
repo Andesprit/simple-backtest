@@ -16,7 +16,7 @@ def sample_strategy_data():
             "cagr": 10.2,
             "sharpe_ratio": 1.5,
             "sortino_ratio": 1.8,
-            "max_drawdown": -12.3,
+            "max_drawdown": 12.3,
             "volatility": 15.0,
             "total_trades": 10,
             "win_rate": 60.0,
@@ -53,7 +53,7 @@ def sample_results_dict(sample_strategy_data):
                 "cagr": 12.0,
                 "sharpe_ratio": 1.8,
                 "sortino_ratio": 2.0,
-                "max_drawdown": -10.0,
+                "max_drawdown": 10.0,
                 "volatility": 12.0,
                 "total_trades": 8,
                 "win_rate": 70.0,
@@ -124,6 +124,15 @@ class TestStrategyResult:
         assert "1.50" in repr_str  # Sharpe ratio
         assert "25.50" in repr_str  # Total return
 
+    def test_plot_equity_curve_honors_show_drawdown(self, sample_strategy_data):
+        result = StrategyResult("TestStrategy", sample_strategy_data)
+
+        with_drawdown = result.plot_equity_curve(show_drawdown=True)
+        without_drawdown = result.plot_equity_curve(show_drawdown=False)
+
+        assert len(with_drawdown.data) == 2
+        assert len(without_drawdown.data) == 1
+
 
 class TestBacktestResults:
     """Tests for BacktestResults class."""
@@ -191,6 +200,13 @@ class TestBacktestResults:
         assert len(comparison) == 2  # Only strategies
         assert "benchmark" not in comparison.index
 
+    def test_compare_sorts_risk_metric_ascending(self, sample_results_dict):
+        results = BacktestResults(sample_results_dict)
+
+        comparison = results.compare(metrics=["max_drawdown"], include_benchmark=False)
+
+        assert comparison.index.tolist() == ["Strategy2", "Strategy1"]
+
     def test_compare_default_metrics(self, sample_results_dict):
         """Test compare with default metrics."""
         results = BacktestResults(sample_results_dict)
@@ -222,6 +238,18 @@ class TestBacktestResults:
         assert isinstance(worst, StrategyResult)
         assert worst.name == "Strategy1"  # Strategy1 has sharpe_ratio of 1.5
         assert worst.metrics["sharpe_ratio"] == 1.5
+
+    def test_best_and_worst_strategy_respect_metric_direction(self, sample_results_dict):
+        results = BacktestResults(sample_results_dict)
+
+        assert results.best_strategy(metric="max_drawdown").name == "Strategy2"
+        assert results.worst_strategy(metric="max_drawdown").name == "Strategy1"
+
+    def test_best_strategy_rejects_unknown_metric(self, sample_results_dict):
+        results = BacktestResults(sample_results_dict)
+
+        with pytest.raises(KeyError, match="Metric 'not_a_metric'"):
+            results.best_strategy(metric="not_a_metric")
 
     def test_best_strategy_no_strategies(self):
         """Test best_strategy with no strategies raises error."""

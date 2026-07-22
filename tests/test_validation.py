@@ -119,18 +119,19 @@ class TestValidateDataframe:
         with pytest.raises(DataValidationError):
             validate_dataframe(df)
 
-    def test_zero_prices_allowed(self, valid_dataframe):
-        """Test that zero prices are allowed."""
+    def test_zero_prices_rejected(self, valid_dataframe):
         df = valid_dataframe.copy()
-        df.loc[df.index[10], "Close"] = 0.0
+        df.loc[df.index[10], ["Open", "High", "Low", "Close"]] = 0.0
 
-        # Should not raise
-        try:
+        with pytest.raises(DataValidationError, match="strictly positive"):
             validate_dataframe(df)
-        except DataValidationError:
-            # If it raises, it's because of OHLC validation, which is expected
-            # Zero prices might violate OHLC relationships
-            pass
+
+    def test_infinite_optional_volume_rejected(self, valid_dataframe):
+        df = valid_dataframe.astype({"Volume": float})
+        df.loc[df.index[10], "Volume"] = float("inf")
+
+        with pytest.raises(DataValidationError, match="infinite"):
+            validate_dataframe(df)
 
     def test_missing_volume_allowed(self, valid_dataframe):
         """Test that missing volume column is allowed."""

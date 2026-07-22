@@ -24,6 +24,11 @@ class TestPercentageCommission:
         with pytest.raises(ValueError, match="Commission rate must be non-negative"):
             PercentageCommission(rate=-0.001)
 
+    @pytest.mark.parametrize("rate", [float("nan"), float("inf")])
+    def test_nonfinite_rate(self, rate):
+        with pytest.raises(ValueError, match="finite"):
+            PercentageCommission(rate=rate)
+
     def test_calculate(self):
         """Test commission calculation."""
         commission = PercentageCommission(rate=0.001)  # 0.1%
@@ -69,6 +74,11 @@ class TestFlatCommission:
         """Test that negative fee raises error."""
         with pytest.raises(ValueError, match="Commission fee must be non-negative"):
             FlatCommission(fee=-5.0)
+
+    @pytest.mark.parametrize("fee", [float("nan"), float("inf")])
+    def test_nonfinite_fee(self, fee):
+        with pytest.raises(ValueError, match="finite"):
+            FlatCommission(fee=fee)
 
     def test_calculate(self):
         """Test commission calculation."""
@@ -118,6 +128,23 @@ class TestTieredCommission:
         """Test that out-of-order thresholds raise error."""
         with pytest.raises(ValueError, match="thresholds must be in ascending order"):
             TieredCommission(tiers=[(5000, 0.001), (1000, 0.002)])
+
+    def test_invalid_tiers_require_terminal_rate(self):
+        """Schedules must specify how values above the final threshold are charged."""
+        with pytest.raises(ValueError, match="must end"):
+            TieredCommission(tiers=[(1000, 0.002), (5000, 0.001)])
+
+    @pytest.mark.parametrize(
+        "tiers",
+        [
+            [(float("nan"), 0.1), (float("inf"), 0.01)],
+            [(1000, float("nan")), (float("inf"), 0.01)],
+            [(1000, 0.1), (float("inf"), float("inf"))],
+        ],
+    )
+    def test_nonfinite_tier_values(self, tiers):
+        with pytest.raises(ValueError, match="finite"):
+            TieredCommission(tiers)
 
     def test_calculate_first_tier(self):
         """Test commission in first tier."""
