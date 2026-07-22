@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Simple Backtest is a transparent Python framework for testing long-only strategies against your own data."
+    />
+    <meta name="theme-color" content="oklch(0.34 0.159 262.4)" />
+    <meta property="og:title" content="Simple Backtest — See the tradeoffs" />
+    <meta
+      property="og:description"
+      content="Bring your data and strategy. Simple Backtest handles the backtest without hiding the accounting."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://andesprit.com/simple-backtest/" />
+    <title>Simple Backtest — Transparent strategy testing in Python</title>
+    <link rel="canonical" href="https://andesprit.com/simple-backtest/" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <header class="site-header">
+      <div class="nav-shell">
+        <a class="brand" href="#top" aria-label="Simple Backtest home">
+          <svg class="brand-mark" viewBox="0 0 48 32" aria-hidden="true">
+            <path d="M2 28h10v-8h10v-8h10V4h14" />
+          </svg>
+          <span>Simple Backtest</span>
+        </a>
+
+        <nav class="main-nav" aria-label="Primary navigation">
+          <a href="#why-it-works">Why it works</a>
+          <a href="#scope">Scope</a>
+          <a href="#examples">Examples</a>
+        </nav>
+
+        <div class="nav-actions">
+          <a
+            class="nav-link"
+            href="https://github.com/Andesprit/simple-backtest"
+            aria-label="View Simple Backtest on GitHub"
+          >GitHub</a>
+          <a class="button button-small" href="#quick-start">Install</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="hero-message">
+          <div class="hero-copy">
+            <p class="version-note">Open source · Python 3.10+</p>
+            <h1 id="hero-title">Bring the strategy. See the tradeoffs.</h1>
+            <p class="hero-summary">
+              A focused Python framework for testing long-only strategies against your own
+              data—without hiding the accounting.
+            </p>
+            <div class="hero-actions">
+              <div class="install-command" aria-label="Installation command">
+                <span aria-hidden="true">›_</span>
+                <code>pip install simple-backtest</code>
+                <button
+                  class="copy-button copy-button-light"
+                  type="button"
+                  data-copy="pip install simple-backtest"
+                  aria-describedby="copy-status-hero"
+                  hidden
+                >Copy</button>
+              </div>
+              <a
+                class="button button-outline-light"
+                href="https://github.com/Andesprit/simple-backtest"
+              >Explore on GitHub</a>
+            </div>
+            <p class="copy-status" id="copy-status-hero" aria-live="polite"></p>
+          </div>
+          <svg class="hero-step" viewBox="0 0 144 112" aria-hidden="true">
+            <path d="M0 100h36V76h36V52h36V28h36" />
+          </svg>
+        </div>
+
+        <div class="research-artifact" role="region" aria-label="Illustrative Simple Backtest run">
+          <div class="artifact-code" role="region" aria-label="Python example">
+            <div class="code-heading">
+              <span>strategy.py</span>
+              <span>illustrative run</span>
+            </div>
+            <pre><code><span class="line"><span class="line-number" aria-hidden="true">1</span><span><span class="syntax-keyword">from</span> simple_backtest <span class="syntax-keyword">import</span> (</span></span>
+<span class="line"><span class="line-number" aria-hidden="true">2</span><span>    Backtest, BacktestConfig,</span></span>
+<span class="line"><span class="line-number" aria-hidden="true">3</span><span>    MovingAverageStrategy,</span></span>
+<span class="line"><span class="line-number" aria-hidden="true">4</span><span>)</span></span>
+<span class="line"><span class="line-number" aria-hidden="true">5</span><span></span></span>
+<span class="line"><span class="line-number" aria-hidden="true">6</span><span>strategy = MovingAverageStrategy(</span></span>
+<span class="line"><span class="line-number" aria-hidden="true">7</span><span>    short_window=<span class="syntax-number">10</span>, long_window=<span class="syntax-number">30</span>, shares=<span class="syntax-number">10</span></span></span>
+<span class="line"><span class="line-number" aria-hidden="true">8</span><span>)</span></span>
+<span class="line"><span class="line-number" aria-hidden="true">9</span><span>config = BacktestConfig.default(</span></span>
+<span class="line"><span class="line-number" aria-hidden="true">10</span><span>    initial_capital=<span class="syntax-number">100_000</span></span></span>
+<span class="line"><span class="line-number" aria-hidden="true">11</span><span>)</span></span></code></pre>
+          </div>
+
+          <figure class="artifact-chart">
+            <figcaption>
+              <span>Portfolio equity</span>
+              <span class="chart-legend"><i></i> Strategy <b></b> Trade</span>
+            </figcaption>
+            <svg
+              viewBox="0 0 760 330"
+              role="img"
+              aria-labelledby="chart-title chart-description"
+              preserveAspectRatio="xMidYMid meet"
+            >
+              <title id="chart-title">Illustrative portfolio equity curve</title>
+              <desc id="chart-description">
+                A stepped strategy-equity line falls early, then rises over four years. Saffron
+                circles mark example trades. The values are illustrative, not a performance claim.
+              </desc>
+              <g class="chart-grid" aria-hidden="true">
+                <path d="M72 48H732" />
+                <path d="M72 108H732" />
+                <path d="M72 168H732" />
+                <path d="M72 228H732" />
+                <path d="M72 288H732" />
+              </g>
+              <g class="chart-axis" aria-hidden="true">
+                <path d="M72 28V288H742" />
+                <text x="16" y="54">120k</text>
+                <text x="16" y="114">110k</text>
+                <text x="16" y="174">100k</text>
+                <text x="22" y="234">90k</text>
+                <text x="22" y="294">80k</text>
+                <text x="82" y="318">Jan ’20</text>
+                <text x="260" y="318">Jan ’21</text>
+                <text x="438" y="318">Jan ’22</text>
+                <text x="616" y="318">Jan ’23</text>
+              </g>
+              <path
+                class="equity-line"
+                pathLength="1"
+                d="M72 165H128V210H164V235H208V212H254V190H300V171H346V150H395V132H438V96H486V98H530V78H576V58H622V66H668V40H704V24H732"
+              />
+              <g class="trade-markers" aria-hidden="true">
+                <circle cx="128" cy="210" r="6" />
+                <circle cx="164" cy="235" r="6" />
+                <circle cx="208" cy="212" r="6" />
+                <circle cx="300" cy="171" r="6" />
+                <circle cx="395" cy="132" r="6" />
+                <circle cx="530" cy="78" r="6" />
+                <circle cx="668" cy="40" r="6" />
+              </g>
+            </svg>
+            <p class="chart-note">Illustrative output · not a performance claim</p>
+          </figure>
+        </div>
+      </section>
+
+      <section class="scope section-shell" id="scope" aria-labelledby="scope-title">
+        <div class="section-intro">
+          <h2 id="scope-title">One instrument. Explicit assumptions.</h2>
+          <p>
+            The model stays useful by staying honest about what it does. Bring one OHLC(V) series;
+            Simple Backtest handles a cash-funded, long-only portfolio.
+          </p>
+        </div>
+
+        <div class="scope-ledger">
+          <div>
+            <p class="ledger-label ledger-supported">Supported</p>
+            <ul class="inline-list" aria-label="Supported capabilities">
+              <li>Long-only spot</li>
+              <li>Fractional units</li>
+              <li>Custom strategies</li>
+              <li>Commission models</li>
+            </ul>
+          </div>
+          <div>
+            <p class="ledger-label">Out of scope</p>
+            <ul class="inline-list" aria-label="Unsupported capabilities">
+              <li>Shorting</li>
+              <li>Leverage</li>
+              <li>Derivatives</li>
+              <li>Live execution</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="workflow" id="why-it-works" aria-labelledby="workflow-title">
+        <div class="section-shell workflow-grid">
+          <div class="workflow-heading">
+            <h2 id="workflow-title">Your research stays yours.</h2>
+            <p>
+              Stay in Python from signal to comparison. The framework supplies the accounting and
+              reporting; your data source and strategy logic remain explicit.
+            </p>
+          </div>
+
+          <ol class="workflow-steps">
+            <li>
+              <span>01</span>
+              <div>
+                <h3>Bring one price series</h3>
+                <p>Load OHLC or OHLCV data from any API, CSV, database, or notebook.</p>
+              </div>
+            </li>
+            <li>
+              <span>02</span>
+              <div>
+                <h3>Define the decisions</h3>
+                <p>Use a built-in strategy or inherit from <code>Strategy</code> for your own logic.</p>
+              </div>
+            </li>
+            <li>
+              <span>03</span>
+              <div>
+                <h3>Inspect the outcome</h3>
+                <p>Compare metrics, trades, equity, benchmarks, and parameter searches.</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="quick-start section-shell" id="quick-start" aria-labelledby="quick-start-title">
+        <div class="quick-start-copy">
+          <h2 id="quick-start-title">Start with code you can read.</h2>
+          <p>
+            Install the package, pass in your data, and run one or more strategies. No service,
+            account, or proprietary data format required.
+          </p>
+          <div class="install-row">
+            <code>pip install simple-backtest</code>
+            <button
+              class="copy-button"
+              type="button"
+              data-copy="pip install simple-backtest"
+              aria-describedby="copy-status-install"
+              hidden
+            >Copy command</button>
+          </div>
+          <p class="copy-status" id="copy-status-install" aria-live="polite"></p>
+          <a
+            class="text-link"
+            href="https://pypi.org/project/simple-backtest/"
+          >View package on PyPI <span aria-hidden="true">↗</span></a>
+        </div>
+
+        <div class="code-panel" aria-label="Simple Backtest quick-start example">
+          <div class="code-heading">
+            <span>quick_start.py</span>
+            <span>Python</span>
+          </div>
+          <pre><code><span class="syntax-keyword">from</span> simple_backtest <span class="syntax-keyword">import</span> (
+    Backtest,
+    BacktestConfig,
+    MovingAverageStrategy,
+)
+
+strategy = MovingAverageStrategy(
+    short_window=<span class="syntax-number">10</span>,
+    long_window=<span class="syntax-number">30</span>,
+    shares=<span class="syntax-number">10</span>,
+)
+
+config = BacktestConfig.default(
+    initial_capital=<span class="syntax-number">10_000</span>
+)
+
+backtest = Backtest(data, config)
+results = backtest.run([strategy])
+
+print(results.compare())</code></pre>
+        </div>
+      </section>
+
+      <section class="capabilities" aria-labelledby="capabilities-title">
+        <div class="section-shell capabilities-grid">
+          <div class="capability-lead">
+            <h2 id="capabilities-title">Enough machinery to compare ideas. No platform around it.</h2>
+            <p>
+              Run strategies in parallel, tune parameters, validate through time, and inspect the
+              same result objects in code or interactive Plotly charts.
+            </p>
+          </div>
+
+          <div class="capability-columns">
+            <div>
+              <h3>Measure</h3>
+              <p>Sharpe, Sortino, Calmar, CAGR, drawdown, win rate, alpha, beta, and more.</p>
+            </div>
+            <div>
+              <h3>Optimize</h3>
+              <p>Grid search, random search, and chronological walk-forward evaluation.</p>
+            </div>
+            <div>
+              <h3>Model costs</h3>
+              <p>Percentage, flat, tiered, or custom commission behavior.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="examples section-shell" id="examples" aria-labelledby="examples-title">
+        <div class="examples-copy">
+          <h2 id="examples-title">Read it. Run it. Change it.</h2>
+          <p>
+            Six notebooks move from a first backtest through commission models, technical signals,
+            machine learning, and walk-forward optimization.
+          </p>
+          <div class="examples-actions">
+            <a
+              class="button button-dark"
+              href="https://github.com/Andesprit/simple-backtest/tree/main/notebooks"
+            >Explore the notebooks</a>
+            <a
+              class="text-link text-link-dark"
+              href="https://github.com/Andesprit/simple-backtest#readme"
+            >Read the documentation <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+        <div class="notebook-index" aria-label="Selected notebooks">
+          <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/01_basic_usage.ipynb">
+            <span>01</span> Basic usage
+          </a>
+          <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/02_candle_strategies.ipynb">
+            <span>02</span> Candle strategies
+          </a>
+          <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/03_ta_strategies.ipynb">
+            <span>03</span> Technical analysis
+          </a>
+          <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/06_advanced_optimization.ipynb">
+            <span>06</span> Advanced optimization
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="section-shell footer-grid">
+        <a class="brand brand-footer" href="#top" aria-label="Back to top">
+          <svg class="brand-mark" viewBox="0 0 48 32" aria-hidden="true">
+            <path d="M2 28h10v-8h10v-8h10V4h14" />
+          </svg>
+          <span>Simple Backtest</span>
+        </a>
+        <p>Open-source strategy testing under the MIT License.</p>
+        <div class="footer-links">
+          <a href="https://pypi.org/project/simple-backtest/">PyPI</a>
+          <a href="https://github.com/Andesprit/simple-backtest">GitHub</a>
+          <a href="https://github.com/Andesprit/simple-backtest/issues">Issues</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
