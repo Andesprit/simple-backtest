@@ -2,6 +2,9 @@ include README.md
 include LICENSE
 include pyproject.toml
 
+# The marketing site is deployed separately through GitHub Pages.
+prune website
+
 recursive-include simple_backtest *.py
 recursive-exclude tests *
 recursive-exclude * __pycache__
