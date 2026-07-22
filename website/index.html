@@ -5,17 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Simple Backtest is a transparent Python framework for testing long-only strategies against your own data."
+      content="Run long-only Python strategies against your own OHLC data, with trades, cash, commissions, and metrics open to inspection."
     />
     <meta name="theme-color" content="oklch(0.34 0.159 262.4)" />
-    <meta property="og:title" content="Simple Backtest — See the tradeoffs" />
+    <meta property="og:title" content="Simple Backtest | Long-only backtesting in Python" />
     <meta
       property="og:description"
-      content="Bring your data and strategy. Simple Backtest handles the backtest without hiding the accounting."
+      content="Bring an OHLC series and a Strategy. Simple Backtest handles portfolio accounting, commissions, trades, and metrics."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://simple-backtest.andesprit.com/" />
-    <title>Simple Backtest — Transparent strategy testing in Python</title>
+    <title>Simple Backtest | Long-only backtesting in Python</title>
     <link rel="canonical" href="https://simple-backtest.andesprit.com/" />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="styles.css" />
@@ -34,7 +34,7 @@
         </a>
 
         <nav class="main-nav" aria-label="Primary navigation">
-          <a href="#why-it-works">Why it works</a>
+          <a href="#why-it-works">How it works</a>
           <a href="#scope">Scope</a>
           <a href="#examples">Examples</a>
         </nav>
@@ -55,10 +55,10 @@
         <div class="hero-message">
           <div class="hero-copy">
             <p class="version-note">Open source · Python 3.10+</p>
-            <h1 id="hero-title">Bring the strategy. See the tradeoffs.</h1>
+            <h1 id="hero-title">Backtest long-only strategies in plain Python.</h1>
             <p class="hero-summary">
-              A focused Python framework for testing long-only strategies against your own
-              data—without hiding the accounting.
+              Bring an OHLC series and a <code>Strategy</code>. Simple Backtest handles cash,
+              positions, commissions, trades, and performance metrics in code you can inspect.
             </p>
             <div class="hero-actions">
               <div class="install-command" aria-label="Installation command">
@@ -75,7 +75,7 @@
               <a
                 class="button button-outline-light"
                 href="https://github.com/Andesprit/simple-backtest"
-              >Explore on GitHub</a>
+              >View the source</a>
             </div>
             <p class="copy-status" id="copy-status-hero" aria-live="polite"></p>
           </div>
@@ -88,7 +88,7 @@
           <div class="artifact-code" role="region" aria-label="Python example">
             <div class="code-heading">
               <span>strategy.py</span>
-              <span>illustrative run</span>
+              <span>example output</span>
             </div>
             <pre><code><span class="line"><span class="line-number" aria-hidden="true">1</span><span><span class="syntax-keyword">from</span> simple_backtest <span class="syntax-keyword">import</span> (</span></span>
 <span class="line"><span class="line-number" aria-hidden="true">2</span><span>    Backtest, BacktestConfig,</span></span>
@@ -116,8 +116,8 @@
             >
               <title id="chart-title">Illustrative portfolio equity curve</title>
               <desc id="chart-description">
-                A stepped strategy-equity line falls early, then rises over four years. Saffron
-                circles mark example trades. The values are illustrative, not a performance claim.
+                This example equity curve falls early, then rises over four years. Saffron circles
+                mark trades. The chart uses sample values and makes no performance claim.
               </desc>
               <g class="chart-grid" aria-hidden="true">
                 <path d="M72 48H732" />
@@ -153,17 +153,17 @@
                 <circle cx="668" cy="40" r="6" />
               </g>
             </svg>
-            <p class="chart-note">Illustrative output · not a performance claim</p>
+            <p class="chart-note">Sample output · not a performance claim</p>
           </figure>
         </div>
       </section>
 
       <section class="scope section-shell" id="scope" aria-labelledby="scope-title">
         <div class="section-intro">
-          <h2 id="scope-title">One instrument. Explicit assumptions.</h2>
+          <h2 id="scope-title">One price series, one cash-funded portfolio.</h2>
           <p>
-            The model stays useful by staying honest about what it does. Bring one OHLC(V) series;
-            Simple Backtest handles a cash-funded, long-only portfolio.
+            Each backtest accepts one OHLC or OHLCV series. The accounting model supports
+            long-only spot instruments and makes the unsupported cases explicit.
           </p>
         </div>
 
@@ -181,7 +181,7 @@
             <p class="ledger-label">Out of scope</p>
             <ul class="inline-list" aria-label="Unsupported capabilities">
               <li>Shorting</li>
-              <li>Leverage</li>
+              <li>Leverage</li><!-- unslop-ignore: finance term -->
               <li>Derivatives</li>
               <li>Live execution</li>
             </ul>
@@ -192,10 +192,10 @@
       <section class="workflow" id="why-it-works" aria-labelledby="workflow-title">
         <div class="section-shell workflow-grid">
           <div class="workflow-heading">
-            <h2 id="workflow-title">Your research stays yours.</h2>
+            <h2 id="workflow-title">You supply the data and the trading rules.</h2>
             <p>
-              Stay in Python from signal to comparison. The framework supplies the accounting and
-              reporting; your data source and strategy logic remain explicit.
+              The library takes your price series and strategy objects, then returns portfolio
+              state, trade history, metrics, and Plotly charts you can inspect in Python.
             </p>
           </div>
 
@@ -203,22 +203,22 @@
             <li>
               <span>01</span>
               <div>
-                <h3>Bring one price series</h3>
-                <p>Load OHLC or OHLCV data from any API, CSV, database, or notebook.</p>
+                <h3>Load one price series</h3>
+                <p>Pass an OHLC or OHLCV DataFrame from an API, CSV, database, or notebook.</p>
               </div>
             </li>
             <li>
               <span>02</span>
               <div>
-                <h3>Define the decisions</h3>
-                <p>Use a built-in strategy or inherit from <code>Strategy</code> for your own logic.</p>
+                <h3>Choose or write a strategy</h3>
+                <p>Use a built-in strategy or subclass <code>Strategy</code> and implement your own signals.</p>
               </div>
             </li>
             <li>
               <span>03</span>
               <div>
-                <h3>Inspect the outcome</h3>
-                <p>Compare metrics, trades, equity, benchmarks, and parameter searches.</p>
+                <h3>Run and compare</h3>
+                <p>Inspect trades, equity, metrics, benchmarks, and parameter searches from the result object.</p>
               </div>
             </li>
           </ol>
@@ -227,10 +227,10 @@
 
       <section class="quick-start section-shell" id="quick-start" aria-labelledby="quick-start-title">
         <div class="quick-start-copy">
-          <h2 id="quick-start-title">Start with code you can read.</h2>
+          <h2 id="quick-start-title">Install it and pass in a DataFrame.</h2>
           <p>
-            Install the package, pass in your data, and run one or more strategies. No service,
-            account, or proprietary data format required.
+            There is no hosted service or account. The package runs locally and accepts ordinary
+            pandas data.
           </p>
           <div class="install-row">
             <code>pip install simple-backtest</code>
@@ -280,10 +280,10 @@ print(results.compare())</code></pre>
       <section class="capabilities" aria-labelledby="capabilities-title">
         <div class="section-shell capabilities-grid">
           <div class="capability-lead">
-            <h2 id="capabilities-title">Enough machinery to compare ideas. No platform around it.</h2>
+            <h2 id="capabilities-title">What the library handles after a signal.</h2>
             <p>
-              Run strategies in parallel, tune parameters, validate through time, and inspect the
-              same result objects in code or interactive Plotly charts.
+              Run several strategies against the same series, tune parameters, validate across
+              time windows, and plot the results with Plotly.
             </p>
           </div>
 
@@ -306,20 +306,20 @@ print(results.compare())</code></pre>
 
       <section class="examples section-shell" id="examples" aria-labelledby="examples-title">
         <div class="examples-copy">
-          <h2 id="examples-title">Read it. Run it. Change it.</h2>
+          <h2 id="examples-title">Six notebooks with working code.</h2>
           <p>
-            Six notebooks move from a first backtest through commission models, technical signals,
-            machine learning, and walk-forward optimization.
+            Start with data loading and a first strategy, then move through commissions, technical
+            signals, machine learning, and walk-forward optimization.
           </p>
           <div class="examples-actions">
             <a
               class="button button-dark"
               href="https://github.com/Andesprit/simple-backtest/tree/main/notebooks"
-            >Explore the notebooks</a>
+            >Browse the notebooks</a>
             <a
               class="text-link text-link-dark"
               href="https://github.com/Andesprit/simple-backtest#readme"
-            >Read the documentation <span aria-hidden="true">↗</span></a>
+            >Read the README <span aria-hidden="true">↗</span></a>
           </div>
         </div>
         <div class="notebook-index" aria-label="Selected notebooks">
@@ -347,7 +347,7 @@ print(results.compare())</code></pre>
           </svg>
           <span>Simple Backtest</span>
         </a>
-        <p>Open-source strategy testing under the MIT License.</p>
+        <p>MIT-licensed Python backtesting for long-only strategies.</p>
         <div class="footer-links">
           <a href="https://pypi.org/project/simple-backtest/">PyPI</a>
           <a href="https://github.com/Andesprit/simple-backtest">GitHub</a>
