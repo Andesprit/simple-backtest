@@ -2,358 +2,376 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta
       name="description"
-      content="Run Python strategies against your own OHLC data, with trades, cash, commissions, and metrics open to inspection."
+      content="Run Python strategies against your own OHLC data. Every trade, every cash movement, and 20 metrics, with the accounting model written out in full."
     />
-    <meta name="theme-color" content="oklch(0.34 0.159 262.4)" />
+    <!-- sRGB of --color-paper; browser chrome hints cannot read CSS custom properties. -->
+    <meta name="theme-color" content="#faf7f3" />
     <meta property="og:title" content="Simple Backtest | Test trading ideas in Python" />
     <meta
       property="og:description"
-      content="Bring an OHLC series and a Strategy. Simple Backtest handles portfolio accounting, commissions, trades, and metrics."
+      content="One OHLC series in, one cash-funded portfolio out. The accounting model is written out in full, including what it refuses to do."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://simple-backtest.andesprit.com/" />
     <title>Simple Backtest | Test trading ideas in Python</title>
     <link rel="canonical" href="https://simple-backtest.andesprit.com/" />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="styles.css" />
     <script src="script.js" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to content</a>
 
-    <header class="site-header">
-      <div class="nav-shell">
-        <a class="brand" href="#top" aria-label="Simple Backtest home">
-          <svg class="brand-mark" viewBox="0 0 48 32" aria-hidden="true">
-            <path d="M2 28h10v-8h10v-8h10V4h14" />
-          </svg>
-          <span>Simple Backtest</span>
-        </a>
-
-        <nav class="main-nav" aria-label="Primary navigation">
-          <a href="#why-it-works">How it works</a>
-          <a href="#scope">Scope</a>
-          <a href="#examples">Examples</a>
-        </nav>
-
-        <div class="nav-actions">
-          <a
-            class="nav-link"
-            href="https://github.com/Andesprit/simple-backtest"
-            aria-label="View Simple Backtest on GitHub"
-          >GitHub</a>
-          <a class="button button-small" href="#quick-start">Install</a>
-        </div>
-      </div>
+    <!-- N9 · edge-aligned minimal. The empty middle is the design; no link row. -->
+    <header class="nav">
+      <a class="nav__wordmark" href="#top">
+        <svg class="nav__mark" viewBox="0 0 48 32" aria-hidden="true" focusable="false">
+          <path d="M2 28h10v-8h10v-8h10V4h14" />
+        </svg>
+        <span>simple-backtest</span>
+      </a>
+      <a class="nav__cta" href="https://github.com/Andesprit/simple-backtest">
+        Source <span aria-hidden="true">↗</span>
+      </a>
     </header>
 
     <main id="main-content">
       <section class="hero" id="top" aria-labelledby="hero-title">
-        <div class="hero-message">
-          <div class="hero-copy">
-            <p class="version-note">Open source · Python 3.10+</p>
-            <h1 id="hero-title">Test trading ideas in plain Python.</h1>
-            <p class="hero-summary">
-              Bring an OHLC series and a <code>Strategy</code>. Simple Backtest handles cash,
-              positions, commissions, trades, and performance metrics in code you can inspect.
-            </p>
-            <div class="hero-actions">
-              <div class="install-command" aria-label="Installation command">
-                <span aria-hidden="true">›_</span>
-                <code>pip install simple-backtest</code>
-                <button
-                  class="copy-button copy-button-light"
-                  type="button"
-                  data-copy="pip install simple-backtest"
-                  aria-describedby="copy-status-hero"
-                  hidden
-                >Copy</button>
-              </div>
-              <a
-                class="button button-outline-light"
-                href="https://github.com/Andesprit/simple-backtest"
-              >View the source</a>
+        <div class="hero__copy reveal" style="--i: 0">
+          <h1 class="hero__title" id="hero-title">
+            <span>Data in.</span>
+            <span>Trades out.</span>
+            <span>Nothing hidden.</span>
+          </h1>
+          <p class="hero__lede">
+            Give it one OHLC series and a <code>Strategy</code>. It returns every trade, every cash
+            movement, and 20 metrics. The accounting model is written out in full below, including
+            what it refuses to do.
+          </p>
+          <div class="hero__actions">
+            <div class="command">
+              <span class="command__prompt" aria-hidden="true">$</span>
+              <code class="command__text">pip install simple-backtest</code>
+              <button
+                class="command__copy"
+                type="button"
+                data-copy="pip install simple-backtest"
+                aria-describedby="copy-status-hero"
+                hidden
+              >
+                Copy
+              </button>
             </div>
-            <p class="copy-status" id="copy-status-hero" aria-live="polite"></p>
+            <p class="command__status" id="copy-status-hero" aria-live="polite"></p>
           </div>
-          <svg class="hero-step" viewBox="0 0 144 112" aria-hidden="true">
-            <path d="M0 100h36V76h36V52h36V28h36" />
-          </svg>
-        </div>
-
-        <div class="research-artifact" role="region" aria-label="Illustrative Simple Backtest run">
-          <div class="artifact-code" role="region" aria-label="Python example">
-            <div class="code-heading">
-              <span>strategy.py</span>
-              <span>example output</span>
-            </div>
-            <pre><code><span class="line"><span class="line-number" aria-hidden="true">1</span><span><span class="syntax-keyword">from</span> simple_backtest <span class="syntax-keyword">import</span> (</span></span>
-<span class="line"><span class="line-number" aria-hidden="true">2</span><span>    Backtest, BacktestConfig,</span></span>
-<span class="line"><span class="line-number" aria-hidden="true">3</span><span>    MovingAverageStrategy,</span></span>
-<span class="line"><span class="line-number" aria-hidden="true">4</span><span>)</span></span>
-<span class="line"><span class="line-number" aria-hidden="true">5</span><span></span></span>
-<span class="line"><span class="line-number" aria-hidden="true">6</span><span>strategy = MovingAverageStrategy(</span></span>
-<span class="line"><span class="line-number" aria-hidden="true">7</span><span>    short_window=<span class="syntax-number">10</span>, long_window=<span class="syntax-number">30</span>, shares=<span class="syntax-number">10</span></span></span>
-<span class="line"><span class="line-number" aria-hidden="true">8</span><span>)</span></span>
-<span class="line"><span class="line-number" aria-hidden="true">9</span><span>config = BacktestConfig.default(</span></span>
-<span class="line"><span class="line-number" aria-hidden="true">10</span><span>    initial_capital=<span class="syntax-number">100_000</span></span></span>
-<span class="line"><span class="line-number" aria-hidden="true">11</span><span>)</span></span></code></pre>
-          </div>
-
-          <figure class="artifact-chart">
-            <figcaption>
-              <span>Portfolio equity</span>
-              <span class="chart-legend"><i></i> Strategy <b></b> Trade</span>
-            </figcaption>
-            <svg
-              viewBox="0 0 760 330"
-              role="img"
-              aria-labelledby="chart-title chart-description"
-              preserveAspectRatio="xMidYMid meet"
-            >
-              <title id="chart-title">Illustrative portfolio equity curve</title>
-              <desc id="chart-description">
-                This example equity curve falls early, then rises over four years. Saffron circles
-                mark trades. The chart uses sample values and makes no performance claim.
-              </desc>
-              <g class="chart-grid" aria-hidden="true">
-                <path d="M72 48H732" />
-                <path d="M72 108H732" />
-                <path d="M72 168H732" />
-                <path d="M72 228H732" />
-                <path d="M72 288H732" />
-              </g>
-              <g class="chart-axis" aria-hidden="true">
-                <path d="M72 28V288H742" />
-                <text x="16" y="54">120k</text>
-                <text x="16" y="114">110k</text>
-                <text x="16" y="174">100k</text>
-                <text x="22" y="234">90k</text>
-                <text x="22" y="294">80k</text>
-                <text x="82" y="318">Jan ’20</text>
-                <text x="260" y="318">Jan ’21</text>
-                <text x="438" y="318">Jan ’22</text>
-                <text x="616" y="318">Jan ’23</text>
-              </g>
-              <path
-                class="equity-line"
-                pathLength="1"
-                d="M72 165H128V210H164V235H208V212H254V190H300V171H346V150H395V132H438V96H486V98H530V78H576V58H622V66H668V40H704V24H732"
-              />
-              <g class="trade-markers" aria-hidden="true">
-                <circle cx="128" cy="210" r="6" />
-                <circle cx="164" cy="235" r="6" />
-                <circle cx="208" cy="212" r="6" />
-                <circle cx="300" cy="171" r="6" />
-                <circle cx="395" cy="132" r="6" />
-                <circle cx="530" cy="78" r="6" />
-                <circle cx="668" cy="40" r="6" />
-              </g>
-            </svg>
-            <p class="chart-note">Sample output · not a performance claim</p>
-          </figure>
-        </div>
-      </section>
-
-      <section class="scope section-shell" id="scope" aria-labelledby="scope-title">
-        <div class="section-intro">
-          <h2 id="scope-title">One price series, one cash-funded portfolio.</h2>
-          <p>
-            Each backtest accepts one OHLC or OHLCV series. The accounting model tracks a
-            cash-funded spot position and makes the unsupported cases explicit.
+          <p class="hero__meta">
+            <span>v0.3.0</span><span>Python 3.10+</span><span>MIT</span><span>no account</span>
           </p>
         </div>
 
-        <div class="scope-ledger">
-          <div>
-            <p class="ledger-label ledger-supported">Supported</p>
-            <ul class="inline-list" aria-label="Supported capabilities">
-              <li>Cash-funded spot</li>
-              <li>Fractional units</li>
-              <li>Custom strategies</li>
-              <li>Commission models</li>
+        <!-- Map / Diagram macrostructure: the schematic is the page's primary composition. -->
+        <figure class="schematic reveal" style="--i: 1">
+          <figcaption class="schematic__caption">
+            One price series in, one cash-funded portfolio out.
+          </figcaption>
+
+          <div class="schematic__flow">
+            <div class="stage">
+              <h2 class="stage__label">Input</h2>
+              <ul class="stage__list">
+                <li>OHLC(V) DataFrame</li>
+                <li><code>Strategy</code> subclass</li>
+                <li><code>BacktestConfig</code></li>
+              </ul>
+            </div>
+
+            <span class="stage__arrow" aria-hidden="true">→</span>
+
+            <div class="stage">
+              <h2 class="stage__label">Engine</h2>
+              <ul class="stage__list">
+                <li>signal to order</li>
+                <li>cash and FIFO lots</li>
+                <li>commission applied</li>
+              </ul>
+            </div>
+
+            <span class="stage__arrow" aria-hidden="true">→</span>
+
+            <div class="stage">
+              <h2 class="stage__label">Output</h2>
+              <ul class="stage__list">
+                <li>trade history</li>
+                <li>equity curve</li>
+                <li>20 metrics</li>
+                <li>Plotly figures</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- The floor. The instrument's limits are a structural element, not a disclaimer. -->
+          <div class="floor">
+            <h2 class="floor__label">Out of scope</h2>
+            <ul class="floor__list">
+              <li>margin</li>
+              <li>leverage</li>
+              <li>short selling</li>
+              <li>contract multipliers</li>
+              <li>funding</li>
+              <li>FX conversion</li>
+              <li>live execution</li>
             </ul>
           </div>
-          <div>
-            <p class="ledger-label">Out of scope</p>
-            <ul class="inline-list" aria-label="Unsupported capabilities">
-              <li>Shorting</li>
-              <li>Leverage</li><!-- unslop-ignore: finance term -->
-              <li>Derivatives</li>
-              <li>Live execution</li>
-            </ul>
-          </div>
-        </div>
+        </figure>
       </section>
 
-      <section class="workflow" id="why-it-works" aria-labelledby="workflow-title">
-        <div class="section-shell workflow-grid">
-          <div class="workflow-heading">
-            <h2 id="workflow-title">You supply the data and the trading rules.</h2>
-            <p>
-              The library takes your price series and strategy objects, then returns portfolio
-              state, trade history, metrics, and Plotly charts you can inspect in Python.
-            </p>
-          </div>
-
-          <ol class="workflow-steps">
-            <li>
-              <span>01</span>
-              <div>
-                <h3>Load one price series</h3>
-                <p>Pass an OHLC or OHLCV DataFrame from an API, CSV, database, or notebook.</p>
-              </div>
-            </li>
-            <li>
-              <span>02</span>
-              <div>
-                <h3>Choose or write a strategy</h3>
-                <p>Use a built-in strategy or subclass <code>Strategy</code> and implement your own signals.</p>
-              </div>
-            </li>
-            <li>
-              <span>03</span>
-              <div>
-                <h3>Run and compare</h3>
-                <p>Inspect trades, equity, metrics, benchmarks, and parameter searches from the result object.</p>
-              </div>
-            </li>
-          </ol>
-        </div>
-      </section>
-
-      <section class="quick-start section-shell" id="quick-start" aria-labelledby="quick-start-title">
-        <div class="quick-start-copy">
-          <h2 id="quick-start-title">Install it and pass in a DataFrame.</h2>
-          <p>
-            There is no hosted service or account. The package runs locally and accepts ordinary
-            pandas data.
+      <section class="ledger" id="model" aria-labelledby="ledger-title">
+        <div class="ledger__head">
+          <h2 class="section__title" id="ledger-title">The accounting model, in full.</h2>
+          <p class="section__lede">
+            Eight rules. Every one of them is a line you can find in the source. Nothing here is
+            inferred, defaulted quietly, or left to the reader.
           </p>
-          <div class="install-row">
-            <code>pip install simple-backtest</code>
+        </div>
+
+        <table class="spec" role="table">
+          <caption class="visually-hidden">
+            Simple Backtest accounting rules and their configurable options
+          </caption>
+          <tbody role="rowgroup">
+            <tr role="row">
+              <th scope="row" role="rowheader">Position</th>
+              <td role="cell">One long-only, cash-funded instrument</td>
+              <td class="spec__note" role="cell">FIFO lots</td>
+            </tr>
+            <tr role="row">
+              <th scope="row" role="rowheader">Quantity</th>
+              <td role="cell">Fractional units allowed</td>
+              <td class="spec__note" role="cell"><code>shares</code> is a generic quantity</td>
+            </tr>
+            <tr role="row">
+              <th scope="row" role="rowheader">Execution price</th>
+              <td role="cell">Bar open</td>
+              <td class="spec__note" role="cell"><code>open · close · vwap · custom</code></td>
+            </tr>
+            <tr role="row">
+              <th scope="row" role="rowheader">Commission</th>
+              <td role="cell">0.1% of notional</td>
+              <td class="spec__note" role="cell"><code>percentage · flat · tiered · custom</code></td>
+            </tr>
+            <tr role="row">
+              <th scope="row" role="rowheader">Cash</th>
+              <td role="cell">Orders above available cash are rejected</td>
+              <td class="spec__note" role="cell">raised, never silently clipped</td>
+            </tr>
+            <tr role="row">
+              <th scope="row" role="rowheader">Annualization</th>
+              <td role="cell">Inferred from the DatetimeIndex</td>
+              <td class="spec__note" role="cell">override with <code>periods_per_year</code></td>
+            </tr>
+            <tr role="row">
+              <th scope="row" role="rowheader">Metrics</th>
+              <td role="cell">20 per run</td>
+              <td class="spec__note" role="cell">returned as a dict on every result</td>
+            </tr>
+            <tr role="row">
+              <th scope="row" role="rowheader">Errors</th>
+              <td role="cell">Raised by default</td>
+              <td class="spec__note" role="cell"><code>error_policy="continue"</code> collects diagnostics</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="start" id="quick-start" aria-labelledby="start-title">
+        <div class="start__copy">
+          <h2 class="section__title" id="start-title">Install it, pass a DataFrame.</h2>
+          <p class="section__lede">
+            No hosted service, no account, no data vendor. The package runs locally against ordinary
+            pandas data and returns a result object you can read in the REPL.
+          </p>
+          <div class="command command--inline">
+            <span class="command__prompt" aria-hidden="true">$</span>
+            <code class="command__text">pip install simple-backtest</code>
             <button
-              class="copy-button"
+              class="command__copy"
               type="button"
               data-copy="pip install simple-backtest"
               aria-describedby="copy-status-install"
               hidden
-            >Copy command</button>
+            >
+              Copy
+            </button>
           </div>
-          <p class="copy-status" id="copy-status-install" aria-live="polite"></p>
-          <a
-            class="text-link"
-            href="https://pypi.org/project/simple-backtest/"
-          >View package on PyPI <span aria-hidden="true">↗</span></a>
+          <p class="command__status" id="copy-status-install" aria-live="polite"></p>
+          <p class="start__links">
+            <a class="link" href="https://pypi.org/project/simple-backtest/">
+              Package on PyPI <span aria-hidden="true">↗</span>
+            </a>
+            <a class="link" href="https://github.com/Andesprit/simple-backtest#readme">
+              Read the README <span aria-hidden="true">↗</span>
+            </a>
+          </p>
         </div>
 
-        <div class="code-panel" aria-label="Simple Backtest quick-start example">
-          <div class="code-heading">
-            <span>quick_start.py</span>
-            <span>Python</span>
-          </div>
-          <pre><code><span class="syntax-keyword">from</span> simple_backtest <span class="syntax-keyword">import</span> (
+        <div class="start__proof">
+          <div class="panel">
+            <p class="panel__label"><span>quick_start.py</span><span>Python</span></p>
+            <pre class="panel__code"><code><span class="kw">from</span> simple_backtest <span class="kw">import</span> (
     Backtest,
     BacktestConfig,
     MovingAverageStrategy,
 )
 
 strategy = MovingAverageStrategy(
-    short_window=<span class="syntax-number">10</span>,
-    long_window=<span class="syntax-number">30</span>,
-    shares=<span class="syntax-number">10</span>,
+    short_window=<span class="num">10</span>,
+    long_window=<span class="num">30</span>,
+    shares=<span class="num">10</span>,
 )
 
 config = BacktestConfig.default(
-    initial_capital=<span class="syntax-number">10_000</span>
+    initial_capital=<span class="num">10_000</span>
 )
 
 backtest = Backtest(data, config)
 results = backtest.run([strategy])
 
 print(results.compare())</code></pre>
-        </div>
-      </section>
-
-      <section class="capabilities" aria-labelledby="capabilities-title">
-        <div class="section-shell capabilities-grid">
-          <div class="capability-lead">
-            <h2 id="capabilities-title">What the library handles after a signal.</h2>
-            <p>
-              Run several strategies against the same series, tune parameters, validate across
-              time windows, and plot the results with Plotly.
-            </p>
-          </div>
-
-          <div class="capability-columns">
-            <div>
-              <h3>Measure</h3>
-              <p>Sharpe, Sortino, Calmar, CAGR, drawdown, win rate, alpha, beta, and more.</p>
-            </div>
-            <div>
-              <h3>Optimize</h3>
-              <p>Grid search, random search, and chronological walk-forward evaluation.</p>
-            </div>
-            <div>
-              <h3>Model costs</h3>
-              <p>Percentage, flat, tiered, or custom commission behavior.</p>
-            </div>
           </div>
         </div>
+
+        <figure class="plot">
+            <p class="panel__label"><span>portfolio equity</span><span>illustrative</span></p>
+            <svg
+              class="plot__svg"
+              viewBox="0 0 760 330"
+              role="img"
+              aria-labelledby="plot-title plot-desc"
+              preserveAspectRatio="xMidYMid meet"
+            >
+              <title id="plot-title">Illustrative portfolio equity curve</title>
+              <desc id="plot-desc">
+                A sample equity curve that falls early, then rises over four years. Ringed points
+                mark trades. The values are made up for the purpose of the drawing and make no
+                performance claim.
+              </desc>
+              <g class="plot__grid" aria-hidden="true">
+                <path d="M72 48H732" />
+                <path d="M72 108H732" />
+                <path d="M72 168H732" />
+                <path d="M72 228H732" />
+                <path d="M72 288H732" />
+              </g>
+              <g class="plot__axis" aria-hidden="true">
+                <path d="M72 28V288H742" />
+                <text x="16" y="54">120k</text>
+                <text x="16" y="114">110k</text>
+                <text x="16" y="174">100k</text>
+                <text x="22" y="234">90k</text>
+                <text x="22" y="294">80k</text>
+                <text x="82" y="318">2020</text>
+                <text x="260" y="318">2021</text>
+                <text x="438" y="318">2022</text>
+                <text x="616" y="318">2023</text>
+              </g>
+              <path
+                class="plot__trace"
+                pathLength="1"
+                d="M72 165H128V210H164V235H208V212H254V190H300V171H346V150H395V132H438V96H486V98H530V78H576V58H622V66H668V40H704V24H732"
+              />
+              <g class="plot__marks" aria-hidden="true">
+                <circle cx="128" cy="210" r="5" />
+                <circle cx="164" cy="235" r="5" />
+                <circle cx="208" cy="212" r="5" />
+                <circle cx="300" cy="171" r="5" />
+                <circle cx="395" cy="132" r="5" />
+                <circle cx="530" cy="78" r="5" />
+                <circle cx="668" cy="40" r="5" />
+              </g>
+            </svg>
+            <figcaption class="plot__note">
+              Drawn values. Not a backtest result, not a performance claim.
+            </figcaption>
+        </figure>
       </section>
 
-      <section class="examples section-shell" id="examples" aria-labelledby="examples-title">
-        <div class="examples-copy">
-          <h2 id="examples-title">Six notebooks with working code.</h2>
-          <p>
-            Start with data loading and a first strategy, then move through commissions, technical
-            signals, machine learning, and walk-forward optimization.
+      <section class="notebooks" id="notebooks" aria-labelledby="notebooks-title">
+        <div class="notebooks__head">
+          <h2 class="section__title" id="notebooks-title">Six notebooks.</h2>
+          <p class="section__lede">
+            They run in order, top to bottom. Start at 01 with data loading and a first strategy; by
+            06 you are running walk-forward optimization.
           </p>
-          <div class="examples-actions">
-            <a
-              class="button button-dark"
-              href="https://github.com/Andesprit/simple-backtest/tree/main/notebooks"
-            >Browse the notebooks</a>
-            <a
-              class="text-link text-link-dark"
-              href="https://github.com/Andesprit/simple-backtest#readme"
-            >Read the README <span aria-hidden="true">↗</span></a>
-          </div>
         </div>
-        <div class="notebook-index" aria-label="Selected notebooks">
-          <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/01_basic_usage.ipynb">
-            <span>01</span> Basic usage
-          </a>
-          <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/02_candle_strategies.ipynb">
-            <span>02</span> Candle strategies
-          </a>
-          <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/03_ta_strategies.ipynb">
-            <span>03</span> Technical analysis
-          </a>
-          <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/06_advanced_optimization.ipynb">
-            <span>06</span> Advanced optimization
-          </a>
-        </div>
+
+        <ol class="index">
+          <li>
+            <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/01_basic_usage.ipynb">
+              <span class="index__num">01</span>
+              <span class="index__name">Basic usage</span>
+              <span class="index__note">load data, run one strategy, read the result</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/02_candle_strategies.ipynb">
+              <span class="index__num">02</span>
+              <span class="index__name">Candle strategies</span>
+              <span class="index__note">signals from raw OHLC shape</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/03_ta_strategies.ipynb">
+              <span class="index__num">03</span>
+              <span class="index__name">Technical analysis</span>
+              <span class="index__note">indicator-driven entries and exits</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/04_ml_strategies.ipynb">
+              <span class="index__num">04</span>
+              <span class="index__name">Machine learning</span>
+              <span class="index__note">a fitted model as the signal source</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/05_commission_usage.ipynb">
+              <span class="index__num">05</span>
+              <span class="index__name">Commissions</span>
+              <span class="index__note">percentage, flat, tiered, and custom costs</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/06_advanced_optimization.ipynb">
+              <span class="index__num">06</span>
+              <span class="index__name">Advanced optimization</span>
+              <span class="index__note">grid, random, and walk-forward search</span>
+            </a>
+          </li>
+        </ol>
       </section>
     </main>
 
-    <footer class="site-footer">
-      <div class="section-shell footer-grid">
-        <a class="brand brand-footer" href="#top" aria-label="Back to top">
-          <svg class="brand-mark" viewBox="0 0 48 32" aria-hidden="true">
-            <path d="M2 28h10v-8h10v-8h10V4h14" />
-          </svg>
-          <span>Simple Backtest</span>
-        </a>
-        <p>MIT-licensed backtesting for Python strategy research.</p>
-        <div class="footer-links">
-          <a href="https://pypi.org/project/simple-backtest/">PyPI</a>
-          <a href="https://github.com/Andesprit/simple-backtest">GitHub</a>
-          <a href="https://github.com/Andesprit/simple-backtest/issues">Issues</a>
-        </div>
-      </div>
+    <!-- Ft4 · dense colophon, log-style. -->
+    <footer class="colophon">
+      <p class="colophon__line">
+        <span>simple-backtest 0.3.0</span>
+        <span>MIT</span>
+        <span>Python 3.10+</span>
+        <span>bring your own data</span>
+      </p>
+      <p class="colophon__line">
+        <a class="link" href="https://pypi.org/project/simple-backtest/">pypi.org/project/simple-backtest</a>
+        <a class="link" href="https://github.com/Andesprit/simple-backtest">github.com/Andesprit/simple-backtest</a>
+        <a class="link" href="https://github.com/Andesprit/simple-backtest/issues">issues</a>
+      </p>
+      <p class="colophon__note">
+        Set in JetBrains Mono and Familjen Grotesk. Figures on this page are drawn, not measured, and
+        make no claim about the returns of any strategy.
+      </p>
     </footer>
   </body>
 </html>

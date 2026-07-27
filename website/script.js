@@ -23,8 +23,10 @@ async function copyText(value) {
 }
 
 copyButtons.forEach((button) => {
-  const originalLabel = button.textContent;
+  const originalLabel = button.textContent.trim();
   let resetTimer;
+
+  button.textContent = originalLabel;
 
   button.hidden = false;
 
@@ -38,7 +40,7 @@ copyButtons.forEach((button) => {
       button.textContent = "Copied";
       if (statusElement) statusElement.textContent = "Installation command copied.";
     } catch {
-      button.textContent = "Copy failed";
+      button.textContent = "Failed";
       if (statusElement) {
         statusElement.textContent = "Copy failed. Select the installation command manually.";
       }
