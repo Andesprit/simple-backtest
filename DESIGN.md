@@ -55,7 +55,8 @@ speaks in the language of the tool.
 
 - Content width: `78rem` maximum with a fluid `--page-gutter`.
 - Spacing is a 4-point-derived scale, nine steps, named by role.
-- The hero is left-biased and bottom-heavy; the schematic spans the full content width beneath it.
+- The hero pairs the introduction with an illustrative account-value chart on wide screens; both
+  stack above the full-width schematic on narrow screens.
 - The accounting ledger is held to `62rem` so it reads as a block rather than a spread.
 - Grouping relies on rules and alignment. There are no cards and no card nesting.
 

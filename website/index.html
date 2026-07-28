@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta
       name="description"
-      content="Run Python strategies against your own OHLC data. Every trade, every cash movement, and 20 metrics, with the accounting model written out in full."
+      content="Test a trading idea on historical price data with Python. Simple Backtest simulates the purchases and sales, tracks the account value, and explains every assumption."
     />
     <!-- sRGB of --color-paper; browser chrome hints cannot read CSS custom properties. -->
     <meta name="theme-color" content="#faf7f3" />
     <meta property="og:title" content="Simple Backtest | Test trading ideas in Python" />
     <meta
       property="og:description"
-      content="One OHLC series in, one cash-funded portfolio out. The accounting model is written out in full, including what it refuses to do."
+      content="Apply your Python buy and sell rules to past prices, then inspect every simulated transaction, cash change, and result."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://simple-backtest.andesprit.com/" />
@@ -48,9 +48,15 @@
             <span>Nothing hidden.</span>
           </h1>
           <p class="hero__lede">
-            Give it one OHLC series and a <code>Strategy</code>. It returns every trade, every cash
-            movement, and 20 metrics. The accounting model is written out in full below, including
-            what it refuses to do.
+            Simple Backtest is a Python library for testing a trading idea on historical prices
+            before risking real money. A backtest is a simulation: it applies your buy and sell
+            rules to past data, then shows what would have happened.
+          </p>
+          <p class="hero__definition">
+            Bring a pandas table with each period's <strong>open, high, low, and close</strong>
+            prices (volume is optional) and a <code>Strategy</code>—a small Python class that decides
+            when to buy or sell. You get every simulated transaction, every cash change, the account
+            value over time, and 20 summary measurements.
           </p>
           <div class="hero__actions">
             <div class="command">
@@ -73,57 +79,112 @@
           </p>
         </div>
 
+        <figure class="plot hero__plot reveal" style="--i: 1">
+          <p class="panel__label">
+            <span>Example: account value over time</span><span>illustrative</span>
+          </p>
+          <svg
+            class="plot__svg"
+            viewBox="0 0 760 330"
+            role="img"
+            aria-labelledby="plot-title plot-desc"
+            preserveAspectRatio="xMidYMid meet"
+          >
+            <title id="plot-title">Illustrative account value over time</title>
+            <desc id="plot-desc">
+              A made-up account value that falls early, then rises over four years. Ringed points
+              mark simulated purchases or sales. The values only demonstrate the chart format and
+              make no performance claim.
+            </desc>
+            <g class="plot__grid" aria-hidden="true">
+              <path d="M72 48H732" />
+              <path d="M72 108H732" />
+              <path d="M72 168H732" />
+              <path d="M72 228H732" />
+              <path d="M72 288H732" />
+            </g>
+            <g class="plot__axis" aria-hidden="true">
+              <path d="M72 28V288H742" />
+              <text x="16" y="54">120k</text>
+              <text x="16" y="114">110k</text>
+              <text x="16" y="174">100k</text>
+              <text x="22" y="234">90k</text>
+              <text x="22" y="294">80k</text>
+              <text x="82" y="318">2020</text>
+              <text x="260" y="318">2021</text>
+              <text x="438" y="318">2022</text>
+              <text x="616" y="318">2023</text>
+            </g>
+            <path
+              class="plot__trace"
+              pathLength="1"
+              d="M72 165H128V210H164V235H208V212H254V190H300V171H346V150H395V132H438V96H486V98H530V78H576V58H622V66H668V40H704V24H732"
+            />
+            <g class="plot__marks" aria-hidden="true">
+              <circle cx="128" cy="210" r="5" />
+              <circle cx="164" cy="235" r="5" />
+              <circle cx="208" cy="212" r="5" />
+              <circle cx="300" cy="171" r="5" />
+              <circle cx="395" cy="132" r="5" />
+              <circle cx="530" cy="78" r="5" />
+              <circle cx="668" cy="40" r="5" />
+            </g>
+          </svg>
+          <figcaption class="plot__note">
+            Made-up values to show the output format. Not a real result or return claim.
+          </figcaption>
+        </figure>
+
         <!-- Map / Diagram macrostructure: the schematic is the page's primary composition. -->
-        <figure class="schematic reveal" style="--i: 1">
+        <figure class="schematic reveal" style="--i: 2">
           <figcaption class="schematic__caption">
-            One price series in, one cash-funded portfolio out.
+            From past prices to a result you can inspect.
           </figcaption>
 
           <div class="schematic__flow">
             <div class="stage">
-              <h2 class="stage__label">Input</h2>
+              <h2 class="stage__label">You provide</h2>
               <ul class="stage__list">
-                <li>OHLC(V) DataFrame</li>
-                <li><code>Strategy</code> subclass</li>
-                <li><code>BacktestConfig</code></li>
+                <li>past prices in pandas</li>
+                <li>buy and sell rules in Python</li>
+                <li>starting cash and costs</li>
               </ul>
             </div>
 
             <span class="stage__arrow" aria-hidden="true">→</span>
 
             <div class="stage">
-              <h2 class="stage__label">Engine</h2>
+              <h2 class="stage__label">The library simulates</h2>
               <ul class="stage__list">
-                <li>signal to order</li>
-                <li>cash and FIFO lots</li>
-                <li>commission applied</li>
+                <li>your rules, one period at a time</li>
+                <li>purchases, sales, and fees</li>
+                <li>cash and what you own</li>
               </ul>
             </div>
 
             <span class="stage__arrow" aria-hidden="true">→</span>
 
             <div class="stage">
-              <h2 class="stage__label">Output</h2>
+              <h2 class="stage__label">You can inspect</h2>
               <ul class="stage__list">
-                <li>trade history</li>
-                <li>equity curve</li>
-                <li>20 metrics</li>
-                <li>Plotly figures</li>
+                <li>every simulated purchase and sale</li>
+                <li>account value over time</li>
+                <li>20 summary measurements</li>
+                <li>interactive charts</li>
               </ul>
             </div>
           </div>
 
           <!-- The floor. The instrument's limits are a structural element, not a disclaimer. -->
           <div class="floor">
-            <h2 class="floor__label">Out of scope</h2>
+            <h2 class="floor__label">Not simulated</h2>
             <ul class="floor__list">
-              <li>margin</li>
-              <li>leverage</li>
+              <li>margin or leverage</li>
               <li>short selling</li>
               <li>contract multipliers</li>
-              <li>funding</li>
-              <li>FX conversion</li>
-              <li>live execution</li>
+              <li>funding costs</li>
+              <li>currency conversion</li>
+              <li>live broker orders</li>
             </ul>
           </div>
         </figure>
@@ -131,10 +192,10 @@
 
       <section class="ledger" id="model" aria-labelledby="ledger-title">
         <div class="ledger__head">
-          <h2 class="section__title" id="ledger-title">The accounting model, in full.</h2>
+          <h2 class="section__title" id="ledger-title">What the simulation assumes.</h2>
           <p class="section__lede">
-            Eight rules. Every one of them is a line you can find in the source. Nothing here is
-            inferred, defaulted quietly, or left to the reader.
+            These eight rules explain how the library handles money, purchases, sales, and costs.
+            Each one is visible in the source, so you can understand exactly how a result was made.
           </p>
         </div>
 
@@ -144,44 +205,44 @@
           </caption>
           <tbody role="rowgroup">
             <tr role="row">
-              <th scope="row" role="rowheader">Position</th>
-              <td role="cell">One long-only, cash-funded instrument</td>
-              <td class="spec__note" role="cell">FIFO lots</td>
+              <th scope="row" role="rowheader">Asset</th>
+              <td role="cell">One asset at a time, bought with available cash</td>
+              <td class="spec__note" role="cell">sales use the oldest purchases first (FIFO)</td>
             </tr>
             <tr role="row">
-              <th scope="row" role="rowheader">Quantity</th>
+              <th scope="row" role="rowheader">Amount</th>
               <td role="cell">Fractional units allowed</td>
               <td class="spec__note" role="cell"><code>shares</code> is a generic quantity</td>
             </tr>
             <tr role="row">
-              <th scope="row" role="rowheader">Execution price</th>
+              <th scope="row" role="rowheader">Price used</th>
               <td role="cell">Bar open</td>
               <td class="spec__note" role="cell"><code>open · close · vwap · custom</code></td>
             </tr>
             <tr role="row">
-              <th scope="row" role="rowheader">Commission</th>
-              <td role="cell">0.1% of notional</td>
-              <td class="spec__note" role="cell"><code>percentage · flat · tiered · custom</code></td>
+              <th scope="row" role="rowheader">Trading fee</th>
+              <td role="cell">0.1% of each purchase or sale by default</td>
+              <td class="spec__note" role="cell"><code>percentage · flat fee · tiered · custom</code></td>
             </tr>
             <tr role="row">
               <th scope="row" role="rowheader">Cash</th>
-              <td role="cell">Orders above available cash are rejected</td>
-              <td class="spec__note" role="cell">raised, never silently clipped</td>
+              <td role="cell">A purchase that costs more than the available cash is rejected</td>
+              <td class="spec__note" role="cell">the library reports the problem instead of changing the order</td>
             </tr>
             <tr role="row">
-              <th scope="row" role="rowheader">Annualization</th>
-              <td role="cell">Inferred from the DatetimeIndex</td>
+              <th scope="row" role="rowheader">Yearly results</th>
+              <td role="cell">The dates are used to convert results to a yearly rate</td>
               <td class="spec__note" role="cell">override with <code>periods_per_year</code></td>
             </tr>
             <tr role="row">
-              <th scope="row" role="rowheader">Metrics</th>
-              <td role="cell">20 per run</td>
-              <td class="spec__note" role="cell">returned as a dict on every result</td>
+              <th scope="row" role="rowheader">Summary</th>
+              <td role="cell">20 measurements per run</td>
+              <td class="spec__note" role="cell">returned as a Python dictionary with every result</td>
             </tr>
             <tr role="row">
-              <th scope="row" role="rowheader">Errors</th>
-              <td role="cell">Raised by default</td>
-              <td class="spec__note" role="cell"><code>error_policy="continue"</code> collects diagnostics</td>
+              <th scope="row" role="rowheader">Problems</th>
+              <td role="cell">The simulation stops and reports them by default</td>
+              <td class="spec__note" role="cell"><code>error_policy="continue"</code> records them and keeps going</td>
             </tr>
           </tbody>
         </table>
@@ -189,10 +250,11 @@
 
       <section class="start" id="quick-start" aria-labelledby="start-title">
         <div class="start__copy">
-          <h2 class="section__title" id="start-title">Install it, pass a DataFrame.</h2>
+          <h2 class="section__title" id="start-title">Try it with a pandas price table.</h2>
           <p class="section__lede">
-            No hosted service, no account, no data vendor. The package runs locally against ordinary
-            pandas data and returns a result object you can read in the REPL.
+            The package runs on your computer with data from a CSV, an API, or any other source.
+            There is no account to create and no required data provider. The result is an ordinary
+            Python object you can inspect immediately.
           </p>
           <div class="command command--inline">
             <span class="command__prompt" aria-hidden="true">$</span>
@@ -243,68 +305,14 @@ results = backtest.run([strategy])
 print(results.compare())</code></pre>
           </div>
         </div>
-
-        <figure class="plot">
-            <p class="panel__label"><span>portfolio equity</span><span>illustrative</span></p>
-            <svg
-              class="plot__svg"
-              viewBox="0 0 760 330"
-              role="img"
-              aria-labelledby="plot-title plot-desc"
-              preserveAspectRatio="xMidYMid meet"
-            >
-              <title id="plot-title">Illustrative portfolio equity curve</title>
-              <desc id="plot-desc">
-                A sample equity curve that falls early, then rises over four years. Ringed points
-                mark trades. The values are made up for the purpose of the drawing and make no
-                performance claim.
-              </desc>
-              <g class="plot__grid" aria-hidden="true">
-                <path d="M72 48H732" />
-                <path d="M72 108H732" />
-                <path d="M72 168H732" />
-                <path d="M72 228H732" />
-                <path d="M72 288H732" />
-              </g>
-              <g class="plot__axis" aria-hidden="true">
-                <path d="M72 28V288H742" />
-                <text x="16" y="54">120k</text>
-                <text x="16" y="114">110k</text>
-                <text x="16" y="174">100k</text>
-                <text x="22" y="234">90k</text>
-                <text x="22" y="294">80k</text>
-                <text x="82" y="318">2020</text>
-                <text x="260" y="318">2021</text>
-                <text x="438" y="318">2022</text>
-                <text x="616" y="318">2023</text>
-              </g>
-              <path
-                class="plot__trace"
-                pathLength="1"
-                d="M72 165H128V210H164V235H208V212H254V190H300V171H346V150H395V132H438V96H486V98H530V78H576V58H622V66H668V40H704V24H732"
-              />
-              <g class="plot__marks" aria-hidden="true">
-                <circle cx="128" cy="210" r="5" />
-                <circle cx="164" cy="235" r="5" />
-                <circle cx="208" cy="212" r="5" />
-                <circle cx="300" cy="171" r="5" />
-                <circle cx="395" cy="132" r="5" />
-                <circle cx="530" cy="78" r="5" />
-                <circle cx="668" cy="40" r="5" />
-              </g>
-            </svg>
-            <figcaption class="plot__note">
-              Drawn values. Not a backtest result, not a performance claim.
-            </figcaption>
-        </figure>
       </section>
 
       <section class="notebooks" id="notebooks" aria-labelledby="notebooks-title">
         <div class="notebooks__head">
-          <h2 class="section__title" id="notebooks-title">Six notebooks.</h2>
+          <h2 class="section__title" id="notebooks-title">Learn with six examples.</h2>
           <p class="section__lede">
-            They run in order, top to bottom. Start at 01 with data loading and a first strategy; by
-            06 you are running walk-forward optimization.
+            Start with loading prices and running your first set of buy and sell rules. Each
+            notebook adds one idea, ending with tools for comparing many variations over time.
           </p>
         </div>
 
@@ -320,7 +328,7 @@ print(results.compare())</code></pre>
             <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/02_candle_strategies.ipynb">
               <span class="index__num">02</span>
               <span class="index__name">Candle strategies</span>
-              <span class="index__note">signals from raw OHLC shape</span>
+              <span class="index__note">buy and sell rules based on price-bar shapes</span>
             </a>
           </li>
           <li>
@@ -334,7 +342,7 @@ print(results.compare())</code></pre>
             <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/04_ml_strategies.ipynb">
               <span class="index__num">04</span>
               <span class="index__name">Machine learning</span>
-              <span class="index__note">a fitted model as the signal source</span>
+              <span class="index__note">use a fitted model to decide when to buy or sell</span>
             </a>
           </li>
           <li>
@@ -348,7 +356,7 @@ print(results.compare())</code></pre>
             <a href="https://github.com/Andesprit/simple-backtest/blob/main/notebooks/06_advanced_optimization.ipynb">
               <span class="index__num">06</span>
               <span class="index__name">Advanced optimization</span>
-              <span class="index__note">grid, random, and walk-forward search</span>
+              <span class="index__note">compare settings across rolling time windows</span>
             </a>
           </li>
         </ol>

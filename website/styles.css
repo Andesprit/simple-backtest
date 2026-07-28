@@ -231,6 +231,18 @@ svg {
   line-height: 1.55;
 }
 
+.hero__definition {
+  max-width: 62ch;
+  margin-top: var(--space-md);
+  color: var(--color-ink-2);
+  line-height: 1.6;
+}
+
+.hero__definition strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
 .hero__actions {
   margin-top: var(--space-lg);
 }
@@ -545,9 +557,13 @@ svg {
 }
 
 .plot {
-  /* Capped so a full-bleed equity curve doesn't dwarf the code beside it. */
   max-width: 62rem;
   margin: var(--space-xl) 0 0;
+}
+
+.hero__plot {
+  align-self: center;
+  min-width: 0;
 }
 
 .plot__svg {
@@ -716,7 +732,27 @@ svg {
 
 @media (min-width: 60rem) {
   .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-areas:
+      "copy plot"
+      "schematic schematic";
+    column-gap: var(--space-xl);
+    align-items: start;
     padding-block: var(--space-2xl) var(--space-3xl);
+  }
+
+  .hero__copy {
+    grid-area: copy;
+  }
+
+  .hero__plot {
+    grid-area: plot;
+    margin-top: 0;
+  }
+
+  .schematic {
+    grid-area: schematic;
   }
 
   .schematic__flow {
@@ -741,11 +777,8 @@ svg {
   .start {
     display: grid;
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    grid-template-areas:
-      "copy code"
-      "plot plot";
+    grid-template-areas: "copy code";
     column-gap: var(--space-3xl);
-    row-gap: var(--space-2xl);
     align-items: start;
   }
 
@@ -755,11 +788,6 @@ svg {
 
   .start__proof {
     grid-area: code;
-    margin-top: 0;
-  }
-
-  .plot {
-    grid-area: plot;
     margin-top: 0;
   }
 
