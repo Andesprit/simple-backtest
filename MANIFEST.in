@@ -1,6 +1,8 @@
 include README.md
+include CHANGELOG.md
 include LICENSE
 include pyproject.toml
+recursive-include docs *.md
 
 # The marketing site is deployed separately through GitHub Pages.
 prune website

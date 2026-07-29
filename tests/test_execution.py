@@ -6,6 +6,7 @@ import pytest
 from simple_backtest.utils.execution import (
     create_execution_price_extractor,
     get_execution_price,
+    get_typical_price,
     get_vwap,
     validate_ohlcv_row,
 )
@@ -39,12 +40,20 @@ class TestGetExecutionPrice:
         assert price == 105.0
 
     def test_vwap_price(self, sample_row):
-        """Test calculating VWAP."""
-        price = get_execution_price(sample_row, method="vwap")
+        """The legacy VWAP name warns because OHLCV cannot provide true VWAP."""
+        with pytest.warns(DeprecationWarning, match="typical"):
+            price = get_execution_price(sample_row, method="vwap")
 
         # VWAP = (High + Low + Close) / 3
         expected = (110.0 + 90.0 + 105.0) / 3
         assert price == pytest.approx(expected)
+
+    def test_typical_price(self, sample_row):
+        """Typical price is named honestly and does not depend on volume."""
+        price = get_execution_price(sample_row, method="typical")
+
+        assert price == pytest.approx((110.0 + 90.0 + 105.0) / 3)
+        assert price == get_typical_price(sample_row)
 
     def test_invalid_method(self, sample_row):
         """Test that invalid method raises error."""
@@ -87,12 +96,18 @@ class TestCreateExecutionPriceExtractor:
         assert price == 105.0
 
     def test_create_vwap_extractor(self, sample_row):
-        """Test creating VWAP extractor."""
-        extractor = create_execution_price_extractor(method="vwap")
+        """The legacy extractor remains available during its deprecation window."""
+        with pytest.warns(DeprecationWarning, match="typical"):
+            extractor = create_execution_price_extractor(method="vwap")
 
         price = extractor(sample_row)
         expected = (110.0 + 90.0 + 105.0) / 3
         assert price == pytest.approx(expected)
+
+    def test_create_typical_extractor(self, sample_row):
+        extractor = create_execution_price_extractor(method="typical")
+
+        assert extractor(sample_row) == pytest.approx((110.0 + 90.0 + 105.0) / 3)
 
     def test_create_custom_extractor(self, sample_row):
         """Test creating custom price extractor."""
@@ -146,7 +161,7 @@ class TestCreateExecutionPriceExtractor:
 
 
 class TestVWAPEdgeCases:
-    """Tests for VWAP edge cases."""
+    """Tests for the deprecated pseudo-VWAP helper."""
 
     def test_vwap_without_volume_column(self):
         """Test VWAP calculation when Volume column is missing (e.g., forex)."""
@@ -160,8 +175,8 @@ class TestVWAPEdgeCases:
             }
         )
 
-        price = get_vwap(row)
-        # Should fall back to typical price
+        with pytest.warns(DeprecationWarning, match="typical"):
+            price = get_vwap(row)
         expected = (110.0 + 90.0 + 105.0) / 3
         assert price == pytest.approx(expected)
 
@@ -177,8 +192,8 @@ class TestVWAPEdgeCases:
             }
         )
 
-        price = get_vwap(row)
-        # Should fall back to typical price
+        with pytest.warns(DeprecationWarning, match="typical"):
+            price = get_vwap(row)
         expected = (110.0 + 90.0 + 105.0) / 3
         assert price == pytest.approx(expected)
 

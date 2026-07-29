@@ -211,6 +211,24 @@ class TestGridSearchOptimizer:
         assert len(optimizer.failures) == 1
         assert optimizer.failures[0]["parameters"]["short_window"] == 30
 
+    def test_candidate_exceeding_lookback_is_recorded_as_failure(
+        self, sample_data, backtest_config
+    ):
+        """A strategy that can never receive enough history is not scored."""
+        optimizer = GridSearchOptimizer(verbose=False)
+
+        results = optimizer.optimize(
+            data=sample_data,
+            config=backtest_config,
+            strategy_class=MovingAverageStrategy,
+            param_space={"short_window": [5], "long_window": [20, 50], "shares": [1]},
+        )
+
+        assert results["long_window"].tolist() == [20]
+        assert len(optimizer.failures) == 1
+        assert optimizer.failures[0]["parameters"]["long_window"] == 50
+        assert "requires 50 history rows" in optimizer.failures[0]["message"]
+
 
 class TestRandomSearchOptimizer:
     """Tests for RandomSearchOptimizer."""
@@ -259,11 +277,10 @@ class TestRandomSearchOptimizer:
         assert len(results) == 3
 
     def test_optimize_reproducibility(self, sample_data, backtest_config, param_space):
-        """Test that random_state ensures reproducibility."""
-        # Note: Due to random.seed() being global, we just test that results are consistent
-        optimizer1 = RandomSearchOptimizer(n_iter=5, random_state=42, verbose=False)
+        """Repeated calls on one seeded optimizer reproduce the same samples."""
+        optimizer = RandomSearchOptimizer(n_iter=5, random_state=42, verbose=False)
 
-        results1 = optimizer1.optimize(
+        results1 = optimizer.optimize(
             data=sample_data,
             config=backtest_config,
             strategy_class=MovingAverageStrategy,
@@ -271,10 +288,7 @@ class TestRandomSearchOptimizer:
             metric="sharpe_ratio",
         )
 
-        # Reset random state and run again
-        optimizer2 = RandomSearchOptimizer(n_iter=5, random_state=42, verbose=False)
-
-        results2 = optimizer2.optimize(
+        results2 = optimizer.optimize(
             data=sample_data,
             config=backtest_config,
             strategy_class=MovingAverageStrategy,
@@ -282,9 +296,7 @@ class TestRandomSearchOptimizer:
             metric="sharpe_ratio",
         )
 
-        # Results should have same number of rows
-        assert len(results1) == len(results2)
-        assert len(results1) == 5
+        pd.testing.assert_frame_equal(results1, results2)
 
     def test_optimize_includes_metrics(self, sample_data, backtest_config, param_space):
         """Test that results include metric columns."""

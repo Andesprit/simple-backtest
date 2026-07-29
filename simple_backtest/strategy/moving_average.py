@@ -32,6 +32,7 @@ class MovingAverageStrategy(Strategy):
         super().__init__(name=name or f"MA_{short_window}_{long_window}")
         self.short_window = short_window
         self.long_window = long_window
+        self.required_history = long_window
         self.shares = shares
 
     def predict(self, data: pd.DataFrame, trade_history: List[Dict[str, Any]]) -> Dict[str, Any]:

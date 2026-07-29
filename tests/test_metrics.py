@@ -191,3 +191,32 @@ def test_annualization_respects_periods_per_year():
     daily = defs.calculate_volatility(returns, periods_per_year=252)
 
     assert daily / monthly == pytest.approx((252 / 12) ** 0.5)
+
+
+def test_cagr_uses_elapsed_subday_time():
+    index = pd.date_range("2024-01-01", periods=2, freq="12h")
+    values = pd.Series([100.0, 100.0001], index=index)
+
+    metrics = calculate_metrics(
+        trade_history=[],
+        portfolio_values=values,
+        benchmark_values=values,
+        initial_capital=100.0,
+    )
+
+    expected_years = 0.5 / 365.25
+    assert metrics["cagr"] == pytest.approx(defs.calculate_cagr(100.0, 100.0001, expected_years))
+
+
+def test_cagr_uses_number_of_returns_for_non_datetime_index():
+    values = pd.Series([100.0, 110.0, 121.0])
+
+    metrics = calculate_metrics(
+        trade_history=[],
+        portfolio_values=values,
+        benchmark_values=values,
+        initial_capital=100.0,
+        periods_per_year=2,
+    )
+
+    assert metrics["cagr"] == pytest.approx(21.0)

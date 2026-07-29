@@ -13,6 +13,7 @@ from simple_backtest.metrics.objectives import metric_is_maximized
 from simple_backtest.optimization.base import Optimizer
 from simple_backtest.strategy.base import Strategy
 from simple_backtest.utils.logger import get_logger
+from simple_backtest.utils.validation import InsufficientHistoryError
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -93,7 +94,13 @@ class GridSearchOptimizer(Optimizer):
                     logger.warning(f"Invalid params {param_dict}: {error}")
                 continue
 
-            metrics = self._run_backtest(data, config, strategy, backtest=backtest)
+            try:
+                metrics = self._run_backtest(data, config, strategy, backtest=backtest)
+            except InsufficientHistoryError as error:
+                self._record_failure(param_dict, error)
+                if self.verbose:
+                    logger.warning(f"Invalid history for params {param_dict}: {error}")
+                continue
             results.append({**param_dict, **metrics})
 
         # Create DataFrame

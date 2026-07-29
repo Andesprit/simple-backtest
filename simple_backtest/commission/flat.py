@@ -8,7 +8,7 @@ from simple_backtest.commission.base import Commission
 class FlatCommission(Commission):
     """Fixed fee per trade, regardless of trade size.
 
-    Common for discount brokers with flat-rate pricing.
+    Useful when the simulated fee schedule charges a fixed amount per trade.
 
     Example:
         # $5 per trade

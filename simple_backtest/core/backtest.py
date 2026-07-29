@@ -47,8 +47,12 @@ class Backtest:
         """
         # Copy before normalization so validation never mutates caller-owned data.
         self.data = data.copy(deep=True)
-        validate_dataframe(self.data, strict=True)
         self.config = config
+        validate_dataframe(
+            self.data,
+            strict=True,
+            require_volume=config.max_volume_participation is not None,
+        )
 
         # Validate config against data
         if isinstance(self.data.index, pd.DatetimeIndex):
@@ -101,18 +105,16 @@ class Backtest:
         self.trading_data = self.data.loc[self.trading_start_date : self.trading_end_date]
 
     def _infer_periods_per_year(self) -> int:
-        """Infer an annualization factor from the data's median spacing."""
+        """Infer annual periods from the observed samples over calendar time."""
         if len(self.data.index) < 2 or not isinstance(self.data.index, pd.DatetimeIndex):
             return 252
 
-        median_spacing = self.data.index.to_series().diff().dropna().median()
-        seconds = median_spacing.total_seconds()
-        if seconds <= 0:
+        elapsed_seconds = (self.data.index[-1] - self.data.index[0]).total_seconds()
+        if elapsed_seconds <= 0:
             return 252
 
-        has_weekends = bool((self.data.index.dayofweek >= 5).any())
-        active_days = 365 if has_weekends else 252
-        periods = round(active_days * 86400 / seconds)
+        elapsed_years = elapsed_seconds / (365.25 * 86400)
+        periods = round((len(self.data.index) - 1) / elapsed_years)
         return max(1, periods)
 
     def _extract_price(self, row: pd.Series) -> float:
@@ -122,6 +124,73 @@ class Backtest:
             raise ValueError(f"Execution price must be finite and positive, got {price}")
         return price
 
+    def _fill_price(self, reference_price: float, side: str) -> float:
+        """Apply deterministic adverse spread and slippage to a reference price."""
+        adverse_fraction = (self.config.slippage_bps + self.config.spread_bps / 2) / 10_000
+        multiplier = 1 + adverse_fraction if side == "buy" else 1 - adverse_fraction
+        price = reference_price * multiplier
+        if not isfinite(price) or price <= 0:
+            raise ValueError(f"Simulated {side} fill price must be positive, got {price}")
+        return price
+
+    def _cap_order_size(self, row: pd.Series, requested_size: float) -> float:
+        """Clamp an order to the configured fraction of bar volume."""
+        if self.config.max_volume_participation is None:
+            return requested_size
+        available_size = float(row["Volume"]) * self.config.max_volume_participation
+        return min(requested_size, available_size)
+
+    def _max_affordable_quantity(self, cash: float, price: float) -> float:
+        """Find the largest quantity affordable under the commission function."""
+        low = 0.0
+        high = cash / price
+        for _ in range(80):
+            candidate = (low + high) / 2
+            commission = self.commission_calculator(candidate, price)
+            if candidate * price + commission <= cash:
+                low = candidate
+            else:
+                high = candidate
+        return low
+
+    def _execute_order(
+        self,
+        portfolio: Portfolio,
+        prediction: Dict[str, Any],
+        row: pd.Series,
+        reference_price: float,
+        timestamp: datetime,
+    ) -> Dict[str, Any] | None:
+        """Execute one validated prediction under configured simulation constraints."""
+        signal = prediction["signal"]
+        requested_size = prediction["size"]
+        size = self._cap_order_size(row, requested_size)
+        if signal == "hold" or size <= 0:
+            return None
+
+        fill_price = self._fill_price(reference_price, signal)
+        commission = self.commission_calculator(size, fill_price)
+        trade_info = None
+        if signal == "buy" and portfolio.can_afford(size, fill_price, commission):
+            trade_info = portfolio.execute_buy(
+                shares=size,
+                price=fill_price,
+                commission=commission,
+                timestamp=timestamp,
+            )
+        elif signal == "sell" and portfolio.get_total_shares() >= size:
+            trade_info = portfolio.execute_sell(
+                shares=size,
+                price=fill_price,
+                commission=commission,
+                timestamp=timestamp,
+                order_ids=prediction.get("order_ids"),
+            )
+
+        if trade_info is not None and size < requested_size:
+            trade_info["requested_shares"] = requested_size
+        return trade_info
+
     def run(self, strategies: List[Strategy]) -> BacktestResults:
         """Run backtest for all strategies.
 
@@ -129,7 +198,7 @@ class Backtest:
         :return: BacktestResults object with methods for accessing and comparing results
         """
         # Validate strategies
-        validate_strategies(strategies)
+        validate_strategies(strategies, self.config.lookback_period)
 
         # Create benchmark
         if self._benchmark_results is None:
@@ -190,6 +259,33 @@ class Backtest:
         state_snapshot = portfolio.get_state_snapshot()
         strategy_trade_history: List[Dict[str, Any]] = []
 
+        def notify_trade(
+            trade_info: Dict[str, Any],
+            current_date: datetime,
+            current_price: float,
+            is_last_day: bool,
+        ) -> None:
+            nonlocal state_snapshot, strategy_trade_history
+            state_snapshot = portfolio.get_state_snapshot()
+            strategy_trade_history = portfolio.get_trade_history()
+            strategy._portfolio_state = {
+                **state_snapshot,
+                "portfolio_value": portfolio.get_portfolio_value(current_price),
+                "current_price": current_price,
+                "timestamp": current_date,
+                "is_last_day": is_last_day,
+            }
+            try:
+                strategy.on_trade_executed(deepcopy(trade_info))
+            except Exception as error:
+                self._handle_strategy_error(
+                    strategy,
+                    current_date,
+                    "trade callback",
+                    error,
+                    errors,
+                )
+
         # Get trading date range
         start_idx = self.data.index.get_indexer([self.trading_start_date], method="nearest")[0]
         end_idx = self.data.index.get_indexer([self.trading_end_date], method="nearest")[0]
@@ -222,6 +318,7 @@ class Backtest:
                         **state_snapshot,
                         "portfolio_value": portfolio_value,
                         "current_price": current_price,
+                        "timestamp": current_date,
                         "is_last_day": i == end_idx,
                     }
                     prediction = strategy.predict(
@@ -239,30 +336,16 @@ class Backtest:
                     )
 
                 if prediction is not None:
-                    signal = prediction["signal"]
-                    size = prediction["size"]
                     trade_info = None
 
                     try:
-                        if signal == "buy" and size > 0:
-                            commission = self.commission_calculator(size, current_price)
-                            if portfolio.can_afford(size, current_price, commission):
-                                trade_info = portfolio.execute_buy(
-                                    shares=size,
-                                    price=current_price,
-                                    commission=commission,
-                                    timestamp=current_date,
-                                )
-                        elif signal == "sell" and size > 0:
-                            if portfolio.get_total_shares() >= size:
-                                commission = self.commission_calculator(size, current_price)
-                                trade_info = portfolio.execute_sell(
-                                    shares=size,
-                                    price=current_price,
-                                    commission=commission,
-                                    timestamp=current_date,
-                                    order_ids=prediction.get("order_ids"),
-                                )
+                        trade_info = self._execute_order(
+                            portfolio,
+                            prediction,
+                            current_row,
+                            current_price,
+                            current_date,
+                        )
                     except Exception as error:
                         self._handle_strategy_error(
                             strategy,
@@ -273,25 +356,32 @@ class Backtest:
                         )
 
                     if trade_info is not None:
-                        # Refresh isolated strategy views only when accounting changes.
-                        state_snapshot = portfolio.get_state_snapshot()
-                        strategy_trade_history = portfolio.get_trade_history()
-                        strategy._portfolio_state = {
-                            **state_snapshot,
-                            "portfolio_value": portfolio.get_portfolio_value(current_price),
-                            "current_price": current_price,
-                            "is_last_day": i == end_idx,
-                        }
-                        try:
-                            strategy.on_trade_executed(deepcopy(trade_info))
-                        except Exception as error:
-                            self._handle_strategy_error(
-                                strategy,
-                                current_date,
-                                "trade callback",
-                                error,
-                                errors,
-                            )
+                        notify_trade(trade_info, current_date, current_price, i == end_idx)
+
+            if i == end_idx and self.config.final_liquidation and portfolio.get_total_shares() > 0:
+                try:
+                    liquidation = self._execute_order(
+                        portfolio,
+                        {
+                            "signal": "sell",
+                            "size": portfolio.get_total_shares(),
+                            "order_ids": None,
+                        },
+                        current_row,
+                        current_price,
+                        current_date,
+                    )
+                    if liquidation is not None:
+                        liquidation["forced_liquidation"] = True
+                        notify_trade(liquidation, current_date, current_price, True)
+                except Exception as error:
+                    self._handle_strategy_error(
+                        strategy,
+                        current_date,
+                        "final liquidation",
+                        error,
+                        errors,
+                    )
 
             # Metrics use end-of-period equity after every fill and commission.
             portfolio_values.append(portfolio.get_portfolio_value(current_price))
@@ -359,32 +449,6 @@ class Backtest:
         start_idx = self.data.index.get_indexer([self.trading_start_date], method="nearest")[0]
         end_idx = self.data.index.get_indexer([self.trading_end_date], method="nearest")[0]
 
-        first_date = self.data.index[start_idx]
-        first_row = self.data.iloc[start_idx]
-        first_price = self._extract_price(first_row)
-
-        # Find the maximum affordable quantity for any non-negative commission model.
-        low = 0.0
-        high = self.config.initial_capital / first_price
-        for _ in range(80):
-            candidate = (low + high) / 2
-            commission = self.commission_calculator(candidate, first_price)
-            if candidate * first_price + commission <= self.config.initial_capital:
-                low = candidate
-            else:
-                high = candidate
-        max_shares = low
-
-        if max_shares > 0:
-            commission = self.commission_calculator(max_shares, first_price)
-            if portfolio.can_afford(max_shares, first_price, commission):
-                portfolio.execute_buy(
-                    shares=max_shares,
-                    price=first_price,
-                    commission=commission,
-                    timestamp=first_date,
-                )
-
         # Track portfolio values
         portfolio_values = []
         timestamps = []
@@ -394,6 +458,37 @@ class Backtest:
             current_date = self.data.index[i]
             current_row = self.data.iloc[i]
             current_price = self._extract_price(current_row)
+
+            should_accumulate = not (i == end_idx and self.config.final_liquidation)
+            can_buy_this_bar = i == start_idx
+            if should_accumulate and can_buy_this_bar and portfolio.cash > 0:
+                buy_price = self._fill_price(current_price, "buy")
+                affordable_size = self._max_affordable_quantity(portfolio.cash, buy_price)
+                buy_size = self._cap_order_size(current_row, affordable_size)
+                if buy_size > 0:
+                    commission = self.commission_calculator(buy_size, buy_price)
+                    if portfolio.can_afford(buy_size, buy_price, commission):
+                        trade = portfolio.execute_buy(
+                            shares=buy_size,
+                            price=buy_price,
+                            commission=commission,
+                            timestamp=current_date,
+                        )
+                        if buy_size < affordable_size:
+                            trade["requested_shares"] = affordable_size
+
+            if i == end_idx and self.config.final_liquidation:
+                sell_size = self._cap_order_size(current_row, portfolio.get_total_shares())
+                if sell_size > 0:
+                    sell_price = self._fill_price(current_price, "sell")
+                    commission = self.commission_calculator(sell_size, sell_price)
+                    trade = portfolio.execute_sell(
+                        shares=sell_size,
+                        price=sell_price,
+                        commission=commission,
+                        timestamp=current_date,
+                    )
+                    trade["forced_liquidation"] = True
 
             portfolio_value = portfolio.get_portfolio_value(current_price)
             portfolio_values.append(portfolio_value)

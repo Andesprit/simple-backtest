@@ -61,7 +61,7 @@ class TestBuyAndHoldStrategy:
         assert prediction["signal"] == "buy"
         assert prediction["size"] == 50
         assert prediction["order_ids"] is None
-        assert strategy.bought is True
+        assert strategy.bought is False
 
     def test_hold_after_initial_buy(self, sample_data):
         """Test that strategy holds after initial buy."""
@@ -83,8 +83,8 @@ class TestBuyAndHoldStrategy:
         assert prediction["signal"] == "hold"
         assert prediction["size"] == 0
 
-    def test_sell_on_last_day(self, sample_data):
-        """Test that strategy sells all on last day."""
+    def test_last_day_liquidation_is_owned_by_engine(self, sample_data):
+        """Built-ins do not apply a hidden liquidation policy."""
         strategy = BuyAndHoldStrategy(shares=50)
         strategy.bought = True
 
@@ -100,9 +100,8 @@ class TestBuyAndHoldStrategy:
 
         prediction = strategy.predict(sample_data.tail(10), [])
 
-        assert prediction["signal"] == "sell"
-        assert prediction["size"] == 50
-        assert prediction["order_ids"] is None
+        assert prediction["signal"] == "hold"
+        assert prediction["size"] == 0
 
     def test_reset_state(self):
         """Test state reset functionality."""
@@ -178,8 +177,8 @@ class TestDCAStrategy:
         prediction = strategy.predict(data_after_interval, [])
         assert prediction["signal"] == "buy"
 
-    def test_sell_on_last_day(self, sample_data):
-        """Test that strategy sells all on last day."""
+    def test_last_day_liquidation_is_owned_by_engine(self, sample_data):
+        """DCA follows the same engine-level liquidation policy as other strategies."""
         strategy = DCAStrategy(investment_amount=1000, interval_days=30)
         strategy.last_trade_date = sample_data.index[0]
 
@@ -195,9 +194,8 @@ class TestDCAStrategy:
 
         prediction = strategy.predict(sample_data.tail(10), [])
 
-        assert prediction["signal"] == "sell"
-        assert prediction["size"] == 50
-        assert prediction["order_ids"] is None
+        assert prediction["signal"] == "buy"
+        assert prediction["size"] == 5
 
     def test_insufficient_cash(self, sample_data):
         """Test behavior when insufficient cash."""

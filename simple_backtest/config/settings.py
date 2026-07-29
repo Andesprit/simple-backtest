@@ -30,8 +30,33 @@ class BacktestConfig(BaseModel):
         default=0.001,
         description="Commission value: float for percentage/flat, list of (threshold, rate) tuples for tiered",
     )
-    execution_price: Literal["open", "close", "vwap", "custom"] = Field(
+    execution_price: Literal["open", "close", "typical", "vwap", "custom"] = Field(
         default="open", description="Price for trade execution"
+    )
+    slippage_bps: float = Field(
+        default=0.0,
+        ge=0,
+        le=10_000,
+        allow_inf_nan=False,
+        description="Deterministic adverse slippage in basis points",
+    )
+    spread_bps: float = Field(
+        default=0.0,
+        ge=0,
+        le=20_000,
+        allow_inf_nan=False,
+        description="Simulated bid-ask spread in basis points",
+    )
+    max_volume_participation: Optional[float] = Field(
+        default=None,
+        gt=0,
+        le=1,
+        allow_inf_nan=False,
+        description="Optional maximum fraction of a bar's Volume available to one order",
+    )
+    final_liquidation: bool = Field(
+        default=False,
+        description="Attempt to liquidate remaining positions on the final bar",
     )
     trading_start_date: Optional[datetime] = Field(default=None, description="Trading period start")
     trading_end_date: Optional[datetime] = Field(default=None, description="Trading period end")
@@ -146,6 +171,14 @@ class BacktestConfig(BaseModel):
 
         return self
 
+    @model_validator(mode="after")
+    def validate_execution_costs(self) -> "BacktestConfig":
+        """Ensure a simulated sell fill always remains positive."""
+        adverse_bps = self.slippage_bps + self.spread_bps / 2
+        if adverse_bps >= 10_000:
+            raise ValueError("combined spread and slippage must be less than 10000 bps")
+        return self
+
     def validate_against_data(
         self, data_start: datetime, data_end: datetime, total_rows: int
     ) -> None:
@@ -257,11 +290,12 @@ class BacktestConfig(BaseModel):
     def high_frequency(cls, **overrides) -> "BacktestConfig":
         """Create a short-lookback configuration for dense bar data.
 
-        This convenience preset does not model latency, order books, slippage,
-        or other requirements of real high-frequency execution.
+        This convenience preset does not model latency or order books. Execution
+        costs remain zero unless ``slippage_bps`` and ``spread_bps`` are
+        explicitly configured.
 
         :param overrides: Any config parameters to override
-        :return: BacktestConfig optimized for HFT
+        :return: BacktestConfig for dense bar-data simulations
 
         Example:
             config = BacktestConfig.high_frequency(initial_capital=100000)
@@ -270,13 +304,13 @@ class BacktestConfig(BaseModel):
             lookback_period=5,
             commission_type="flat",
             commission_value=1.0,  # $1 per trade
-            execution_price="vwap",
+            execution_price="typical",
             **overrides,
         )
 
     @classmethod
     def low_commission(cls, **overrides) -> "BacktestConfig":
-        """Create config for discount brokers with low commission.
+        """Create config with a low percentage commission assumption.
 
         Very low percentage commission (0.01%).
 

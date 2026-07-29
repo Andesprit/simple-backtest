@@ -19,7 +19,15 @@
 
 Simple Backtest is a Python framework designed to make backtesting trading strategies straightforward and accessible. Whether you're testing a simple moving average crossover or a complex machine learning model, Simple Backtest provides the tools you need.
 
-**Key Philosophy**: Bring your own data from any library/api/csv/etc, we dont provide any data source, just the framework to test your strategies. Inherit from `Strategy`, `Commission` and `Optimizer`, and create your own strategies. We have some built-in classes and examples to get you started but the main goal is to be able to use the framework with your own data and strategy, and let simple-backtest handle the rest.
+**Key Philosophy**: Bring your own data from any library, API, or file. The
+package deliberately provides no market-data source. Inherit from `Strategy`,
+`Commission`, or `Optimizer` to supply custom behavior; the built-in classes
+and examples are starting points.
+
+Simple Backtest is strictly a simulation library. It does not connect to brokers,
+route orders, manage live risk, or operate trading accounts. Read the
+[simulation scope and limitations](docs/SIMULATION_SCOPE.md) before using its
+results to inform financial decisions.
 
 ## ✨ Features
 
@@ -155,6 +163,9 @@ from simple_backtest import Strategy
 class MyStrategy(Strategy):
     """Custom trading strategy."""
 
+    # The engine and optimizers reject configurations with shorter lookbacks.
+    required_history = 20
+
     def __init__(self, threshold=100, name=None):
         super().__init__(name=name or "MyStrategy")
         self.threshold = threshold
@@ -207,7 +218,7 @@ config = BacktestConfig.high_frequency(initial_capital=100000)
 # Swing trading (longer lookback, typical retail commission)
 config = BacktestConfig.swing_trading(initial_capital=10000)
 
-# Low commission brokers (0.01% commission)
+# Low percentage commission preset (0.01%)
 config = BacktestConfig.low_commission(initial_capital=10000)
 ```
 
@@ -264,7 +275,7 @@ param_space = {
 optimizer = GridSearchOptimizer(verbose=True)
 results = optimizer.optimize(
     data=data,
-    config=BacktestConfig.default(),
+    config=BacktestConfig.default(lookback_period=60),
     strategy_class=MovingAverageStrategy,
     param_space=param_space,
     metric='sharpe_ratio'
@@ -278,6 +289,11 @@ print(results.head(5))
 - `GridSearchOptimizer` - Exhaustive search (best for small spaces)
 - `RandomSearchOptimizer` - Random sampling (faster for large spaces)
 - `WalkForwardOptimizer` - Expanding training windows with chronological out-of-sample folds
+
+Set each strategy's `required_history` to the minimum number of rows its
+indicators need. Optimizers record parameter combinations that exceed
+`lookback_period` as failed candidates instead of running invalid simulations.
+Use an explicit `random_state` for reproducible random searches.
 
 ### Custom Commission Models
 
@@ -322,6 +338,36 @@ For a custom execution price, set `execution_price="custom"` and pass
 `execution_price_extractor=` to `Backtest`. Strategy exceptions raise with
 strategy/date/stage context by default; use `error_policy="continue"` only when
 you intentionally want structured diagnostics in `StrategyResult.errors`.
+
+### Execution and Timing Assumptions
+
+Signals receive only rows strictly before the execution bar, so a signal formed
+from the supplied window cannot see its own fill price. Orders fill at the
+configured bar price (`open`, `close`, `typical`, or `custom`). The legacy
+`vwap` option remains as a deprecated alias for the OHLC typical price
+`(high + low + close) / 3`; one OHLCV bar is not enough to calculate true VWAP.
+
+Execution realism is deterministic and opt-in:
+
+```python
+config = BacktestConfig.default(
+    slippage_bps=5,                 # adverse to both buys and sells
+    spread_bps=10,                  # half-spread applied in each direction
+    max_volume_participation=0.05,  # at most 5% of the execution bar's volume
+    final_liquidation=True,         # attempt to close on the final bar
+)
+```
+
+When volume participation caps an order, only the capped quantity is filled and
+the unfilled remainder is cancelled; the engine does not maintain resting
+orders. `final_liquidation=False` is the default, so open positions remain
+marked to the final close. Enabling it applies the same cost and volume rules to
+both strategies and the benchmark.
+
+Annualized metrics infer observations per year from the data's timestamp span.
+For short, irregular, or mixed-frequency data, set `periods_per_year`
+explicitly. DCA intervals are measured from successful fills, not rejected or
+zero-sized attempts.
 
 ### Logging Control
 

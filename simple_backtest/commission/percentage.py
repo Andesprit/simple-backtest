@@ -8,7 +8,7 @@ from simple_backtest.commission.base import Commission
 class PercentageCommission(Commission):
     """Commission as a percentage of trade value.
 
-    Most common commission structure used by brokers.
+    Models fee schedules expressed as a fraction of notional value.
 
     Example:
         # 0.1% commission

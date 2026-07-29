@@ -157,7 +157,7 @@ By completing all notebooks, you'll be able to:
 ✅ Optimize strategy parameters
 ✅ Compare multiple strategies
 ✅ Avoid common backtesting pitfalls
-✅ Build production-ready trading systems
+✅ Build reproducible backtest experiments
 
 ---
 
@@ -202,7 +202,7 @@ uv pip install jupyter
 ## 📚 Additional Resources
 
 - **Framework Documentation**: See main README.md
-- **API Reference**: See CLAUDE.md
+- **Simulation Scope**: See [docs/SIMULATION_SCOPE.md](../docs/SIMULATION_SCOPE.md)
 - **GitHub Issues**: Report bugs or request features
 - **Community**: Share your strategies and results
 
@@ -225,7 +225,8 @@ Have a cool strategy or improvement?
 
 - Past performance ≠ future results
 - Always paper trade first
-- Real trading has additional costs (slippage, spreads)
+- Configure simulated commissions, slippage, spreads, and volume participation;
+  these deterministic assumptions are still not a substitute for live execution
 - Markets can change unexpectedly
 - Never risk money you can't afford to lose
 

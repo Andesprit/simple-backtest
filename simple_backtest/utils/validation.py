@@ -33,6 +33,12 @@ class StrategyError(BacktestError):
     pass
 
 
+class InsufficientHistoryError(StrategyError):
+    """A strategy requires more history than the engine will provide."""
+
+    pass
+
+
 class StrategyExecutionError(StrategyError, RuntimeError):
     """A strategy callback or order failed during a backtest."""
 
@@ -421,10 +427,11 @@ def validate_date_range(
         )
 
 
-def validate_strategies(strategies: List[Strategy]) -> None:
+def validate_strategies(strategies: List[Strategy], lookback_period: int | None = None) -> None:
     """Validate list of strategies.
 
     :param strategies: List of strategies to validate
+    :param lookback_period: Maximum history rows supplied to each strategy
     """
     if not strategies:
         raise StrategyError("Must provide at least one strategy")
@@ -448,6 +455,23 @@ def validate_strategies(strategies: List[Strategy]) -> None:
         if not name or not isinstance(name, str):
             raise StrategyError(
                 f"Strategy at index {i} has invalid name: {name}. Must be non-empty string."
+            )
+        if name == "benchmark":
+            raise StrategyError("Strategy name 'benchmark' is reserved for the internal benchmark")
+
+        required_history = strategy.required_history
+        if (
+            isinstance(required_history, bool)
+            or not isinstance(required_history, int)
+            or required_history < 0
+        ):
+            raise StrategyError(
+                f"Strategy '{name}' required_history must be a non-negative integer"
+            )
+        if lookback_period is not None and required_history > lookback_period:
+            raise InsufficientHistoryError(
+                f"Strategy '{name}' requires {required_history} history rows, "
+                f"but lookback_period is {lookback_period}"
             )
 
     # Check for duplicate names

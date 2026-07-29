@@ -1,5 +1,6 @@
 """Execution price extraction from OHLCV data."""
 
+import warnings
 from typing import Callable, Literal
 
 import pandas as pd
@@ -15,42 +16,38 @@ def get_close_price(row: pd.Series) -> float:
     return float(row["Close"])
 
 
-def get_vwap(row: pd.Series) -> float:
-    """Calculate Volume Weighted Average Price.
+def get_typical_price(row: pd.Series) -> float:
+    """Return the OHLC typical price.
 
-    Falls back to typical price if Volume column missing (e.g., for forex data)
-    or if volume is zero.
+    A single OHLC(V) bar does not contain the intrabar observations needed to
+    calculate true volume-weighted average price.
     """
     high = float(row["High"])
     low = float(row["Low"])
     close = float(row["Close"])
+    return (high + low + close) / 3
 
-    # Handle missing Volume column (common for forex/some asset types)
-    if "Volume" not in row.index:
-        # Fall back to typical price
-        return (high + low + close) / 3
 
-    volume = float(row["Volume"])
-
-    if volume == 0:
-        # If no volume, fall back to typical price
-        return (high + low + close) / 3
-
-    # Note: This is a simplified VWAP using typical price
-    # True VWAP would require intraday data
-    typical_price = (high + low + close) / 3
-    return typical_price
+def get_vwap(row: pd.Series) -> float:
+    """Return typical price through the deprecated ``vwap`` compatibility alias."""
+    warnings.warn(
+        "get_vwap() is deprecated; use get_typical_price() because a single "
+        "OHLCV bar cannot provide true VWAP",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return get_typical_price(row)
 
 
 def get_execution_price(
     row: pd.Series,
-    method: Literal["open", "close", "vwap", "custom"] = "open",
+    method: Literal["open", "close", "typical", "vwap", "custom"] = "open",
     custom_func: Callable[[pd.Series], float] | None = None,
 ) -> float:
     """Extract execution price using specified method.
 
     :param row: OHLCV Series
-    :param method: Price method ('open', 'close', 'vwap', 'custom')
+    :param method: Price method ('open', 'close', 'typical', deprecated 'vwap', 'custom')
     :param custom_func: Custom function for 'custom' method
     :return: Execution price
     """
@@ -60,8 +57,17 @@ def get_execution_price(
     elif method == "close":
         return get_close_price(row)
 
+    elif method == "typical":
+        return get_typical_price(row)
+
     elif method == "vwap":
-        return get_vwap(row)
+        warnings.warn(
+            "execution_price='vwap' is a deprecated alias for 'typical'; "
+            "a single OHLCV bar cannot provide true VWAP",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return get_typical_price(row)
 
     elif method == "custom":
         if custom_func is None:
@@ -71,12 +77,12 @@ def get_execution_price(
     else:
         raise ValueError(
             f"Invalid execution price method: {method}. "
-            f"Must be one of: 'open', 'close', 'vwap', 'custom'"
+            f"Must be one of: 'open', 'close', 'typical', 'vwap', 'custom'"
         )
 
 
 def create_execution_price_extractor(
-    method: Literal["open", "close", "vwap", "custom"] = "open",
+    method: Literal["open", "close", "typical", "vwap", "custom"] = "open",
     custom_func: Callable[[pd.Series], float] | None = None,
 ) -> Callable[[pd.Series], float]:
     """Create price extractor function.
@@ -89,8 +95,16 @@ def create_execution_price_extractor(
         return get_open_price
     elif method == "close":
         return get_close_price
+    elif method == "typical":
+        return get_typical_price
     elif method == "vwap":
-        return get_vwap
+        warnings.warn(
+            "execution_price='vwap' is a deprecated alias for 'typical'; "
+            "a single OHLCV bar cannot provide true VWAP",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return get_typical_price
     elif method == "custom":
         if custom_func is None:
             raise ValueError("custom_func must be provided when method='custom'")
@@ -98,7 +112,7 @@ def create_execution_price_extractor(
     else:
         raise ValueError(
             f"Invalid execution price method: {method}. "
-            f"Must be one of: 'open', 'close', 'vwap', 'custom'"
+            f"Must be one of: 'open', 'close', 'typical', 'vwap', 'custom'"
         )
 
 

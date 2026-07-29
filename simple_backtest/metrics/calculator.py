@@ -57,11 +57,10 @@ def calculate_metrics(
 
     # Calculate years for CAGR
     if isinstance(portfolio_values.index, pd.DatetimeIndex):
-        days = (portfolio_values.index[-1] - portfolio_values.index[0]).days
-        years = days / 365.25
+        elapsed_seconds = (portfolio_values.index[-1] - portfolio_values.index[0]).total_seconds()
+        years = elapsed_seconds / (365.25 * 86400)
     else:
-        # Assume daily data if no datetime index
-        years = len(portfolio_values) / periods_per_year
+        years = max(0, len(portfolio_values) - 1) / periods_per_year
 
     # Returns metrics
     total_return = defs.calculate_total_return(initial_capital, final_value)

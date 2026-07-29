@@ -19,6 +19,10 @@ def test_config_defaults():
     assert config.parallel_execution is True
     assert config.n_jobs == -1
     assert config.risk_free_rate == 0.0
+    assert config.slippage_bps == 0.0
+    assert config.spread_bps == 0.0
+    assert config.max_volume_participation is None
+    assert config.final_liquidation is False
 
 
 def test_config_custom_values():
@@ -121,6 +125,21 @@ def test_config_validation_constraints():
 
     with pytest.raises(ValueError):
         BacktestConfig(risk_free_rate=float("nan"))
+
+    with pytest.raises(ValueError):
+        BacktestConfig(slippage_bps=-1)
+
+    with pytest.raises(ValueError):
+        BacktestConfig(spread_bps=-1)
+
+    with pytest.raises(ValueError):
+        BacktestConfig(max_volume_participation=0)
+
+    with pytest.raises(ValueError):
+        BacktestConfig(max_volume_participation=1.01)
+
+    with pytest.raises(ValueError, match="combined spread and slippage"):
+        BacktestConfig(slippage_bps=9_999, spread_bps=2)
 
 
 def test_config_rejects_unknown_or_removed_options():

@@ -11,6 +11,7 @@ from simple_backtest import (
     MovingAverageStrategy,
     Strategy,
 )
+from simple_backtest.utils.validation import StrategyError
 
 
 @pytest.fixture
@@ -60,7 +61,7 @@ class TestFullBacktestWorkflow:
 
     def test_multiple_strategies_backtest(self, sample_data):
         """Test running backtest with multiple strategies."""
-        config = BacktestConfig.default(initial_capital=10000, lookback_period=30)
+        config = BacktestConfig.default(initial_capital=10000, lookback_period=50)
 
         strategies = [
             MovingAverageStrategy(short_window=10, long_window=30, shares=10, name="MA_Fast"),
@@ -177,7 +178,7 @@ class TestFullBacktestWorkflow:
 
     def test_backtest_results_comparison(self, sample_data):
         """Test results comparison functionality."""
-        config = BacktestConfig.default(initial_capital=10000, lookback_period=30)
+        config = BacktestConfig.default(initial_capital=10000, lookback_period=50)
 
         strategies = [
             MovingAverageStrategy(short_window=10, long_window=30, shares=10, name="Fast"),
@@ -309,6 +310,18 @@ class TestBacktestEdgeCases:
         except Exception as e:
             # Expected to fail with insufficient data
             assert "data" in str(e).lower() or "lookback" in str(e).lower()
+
+    def test_strategy_named_benchmark_is_rejected(self, sample_data):
+        """The reserved result key cannot silently erase strategy output."""
+
+        class NeverTradeStrategy(Strategy):
+            def predict(self, data, trade_history):
+                return self.hold()
+
+        config = BacktestConfig.default(parallel_execution=False)
+
+        with pytest.raises(StrategyError, match="reserved"):
+            Backtest(sample_data, config).run([NeverTradeStrategy(name="benchmark")])
 
     def test_backtest_with_flat_prices(self):
         """Test backtest with flat prices (no returns)."""

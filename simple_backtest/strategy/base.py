@@ -15,7 +15,9 @@ class Strategy(ABC):
     derivatives contract multipliers, funding, or currency conversion.
 
     Implement predict() to define strategy logic. State persists within a backtest
-    but is reset between runs.
+    but is reset between runs. Set ``required_history`` to the minimum number of
+    prior rows needed by the strategy; incompatible backtest and optimization
+    configurations are rejected before execution.
 
     Helper methods available in predict():
     - has_position(): Check if holding any units
@@ -30,12 +32,15 @@ class Strategy(ABC):
     - buy_cash(amount): Buy units worth specific cash amount
     """
 
+    required_history: int = 0
+
     def __init__(self, name: Optional[str] = None):
         """Initialize strategy.
 
         :param name: Strategy name (defaults to class name)
         """
         self._name = name or self.__class__.__name__
+        self.required_history = type(self).required_history
         self._state_initialized = False
         self._portfolio_state: Dict[str, Any] | None = None  # Injected by backtest engine
 
