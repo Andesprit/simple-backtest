@@ -5,7 +5,10 @@ import importlib
 import json
 from pathlib import Path
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 import simple_backtest
 
@@ -13,8 +16,8 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_release_version_is_consistent():
-    metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
-    lockfile = tomllib.loads((ROOT / "uv.lock").read_text())
+    metadata = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    lockfile = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
     locked_project = next(
         package for package in lockfile["package"] if package["name"] == "simple-backtest"
     )
@@ -29,7 +32,7 @@ def test_notebooks_are_clean_and_import_public_api_names():
 
     assert len(notebooks) == 6
     for path in notebooks:
-        notebook = json.loads(path.read_text())
+        notebook = json.loads(path.read_text(encoding="utf-8"))
         for cell in notebook["cells"]:
             if cell["cell_type"] != "code":
                 continue
