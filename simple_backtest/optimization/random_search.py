@@ -1,5 +1,6 @@
 """Random search optimizer - samples random parameter combinations."""
 
+import math
 import random
 from typing import Any, Dict, List, Type
 
@@ -8,7 +9,6 @@ from tqdm import tqdm
 
 from simple_backtest.config.settings import BacktestConfig
 from simple_backtest.core.backtest import Backtest
-from simple_backtest.metrics.objectives import metric_is_maximized
 from simple_backtest.optimization.base import Optimizer
 from simple_backtest.strategy.base import Strategy
 from simple_backtest.utils.logger import get_logger
@@ -45,15 +45,22 @@ class RandomSearchOptimizer(Optimizer):
         random_state: int | None = None,
         verbose: bool = True,
         name: str | None = None,
+        *,
+        repeats: int = 1,
     ):
         """Initialize random search optimizer.
 
-        :param n_iter: Number of random combinations to test
+        :param n_iter: Maximum number of unique combinations to test
         :param random_state: Random seed for reproducibility
         :param verbose: Show progress bar
         :param name: Optimizer name
+        :param repeats: Independent seeded evaluations per candidate (default one)
         """
         super().__init__(name=name or "RandomSearch")
+        for label, value in (("n_iter", n_iter), ("repeats", repeats)):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{label} must be a positive integer")
+        self.repeats = repeats
         self.n_iter = n_iter
         self.random_state = random_state
         self.verbose = verbose
@@ -78,51 +85,62 @@ class RandomSearchOptimizer(Optimizer):
         :return: DataFrame of results sorted by metric
         """
         results = []
-        self.failures = []
+        param_space = self._prepare_search(param_space)
+        if self.repeats > 1 and {"trial", "simulation_seed"}.intersection(param_space):
+            raise ValueError(
+                "trial and simulation_seed are reserved columns for repeated evaluations"
+            )
         if self.random_state is not None:
             self._random.seed(self.random_state)
-        param_names = list(param_space.keys())
+        param_names = list(param_space)
+        combinations = math.prod(len(values) for values in param_space.values())
+        indices = self._random.sample(range(combinations), min(self.n_iter, combinations))
+        self.summary["unique_candidates"] = len(indices)
         backtest = Backtest(data, config)
+        iterator = tqdm(indices, desc="Random Search") if self.verbose else indices
 
-        if self.verbose:
-            logger.info(f"Testing {self.n_iter} random parameter combinations...")
+        for index in iterator:
+            param_dict = {}
+            for name in reversed(param_names):
+                index, offset = divmod(index, len(param_space[name]))
+                param_dict[name] = param_space[name][offset]
+            for trial in range(self.repeats):
+                self.summary["attempted_evaluations"] += 1
+                seed = config.random_seed
+                trial_config = config
+                if self.repeats > 1:
+                    seed = self._random.randrange(2**32)
+                    trial_config = config.model_copy(update={"random_seed": seed})
+                try:
+                    strategy = strategy_class(**param_dict)
+                except (TypeError, ValueError) as error:
+                    self._record_failure(param_dict, error)
+                    continue
+                try:
+                    metrics = self._run_backtest(
+                        data,
+                        trial_config,
+                        strategy,
+                        backtest=backtest if self.repeats == 1 else None,
+                    )
+                except InsufficientHistoryError as error:
+                    self._record_failure(param_dict, error)
+                    continue
+                row = {**param_dict, **metrics}
+                if self.repeats > 1:
+                    row.update(trial=trial + 1, simulation_seed=seed)
+                results.append(row)
 
-        # Generate random combinations
-        iterator = range(self.n_iter)
-        if self.verbose:
-            iterator = tqdm(iterator, desc="Random Search")
-
-        for _ in iterator:
-            # Sample random values for each parameter
-            param_dict = {name: self._random.choice(param_space[name]) for name in param_names}
-
-            try:
-                strategy = strategy_class(**param_dict)
-            except (TypeError, ValueError) as error:
-                self._record_failure(param_dict, error)
-                if self.verbose:
-                    logger.warning(f"Invalid params {param_dict}: {error}")
-                continue
-
-            try:
-                metrics = self._run_backtest(data, config, strategy, backtest=backtest)
-            except InsufficientHistoryError as error:
-                self._record_failure(param_dict, error)
-                if self.verbose:
-                    logger.warning(f"Invalid history for params {param_dict}: {error}")
-                continue
-            results.append({**param_dict, **metrics})
-
-        # Create DataFrame
-        df = pd.DataFrame(results)
-
-        if df.empty:
-            logger.warning("All parameter combinations failed!")
-            return df
-
-        if metric not in df.columns:
-            raise ValueError(f"Metric '{metric}' not found. Available metrics: {list(df.columns)}")
-
-        return df.sort_values(metric, ascending=not metric_is_maximized(metric)).reset_index(
-            drop=True
+        return self._finish_search(
+            results,
+            metric,
+            {
+                **backtest.metadata,
+                "method": "random",
+                "strategy_class": f"{strategy_class.__module__}.{strategy_class.__qualname__}",
+                "parameter_space": param_space,
+                "random_state": self.random_state,
+                "repeats": self.repeats,
+                "available_candidates": combinations,
+            },
         )

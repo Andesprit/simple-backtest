@@ -1,7 +1,7 @@
 """Verify an installed wheel outside the source checkout."""
 
 from importlib.metadata import version
-from math import isfinite
+from math import isclose, isfinite
 from pathlib import Path
 
 import pandas as pd
@@ -16,7 +16,7 @@ def main() -> None:
     package_path = Path(simple_backtest.__file__).resolve()
     if "site-packages" not in package_path.parts:
         raise RuntimeError(f"Expected installed wheel import, got {package_path}")
-    if simple_backtest.__version__ != "0.4.0":
+    if simple_backtest.__version__ != "0.5.0":
         raise RuntimeError(f"Unexpected installed version {simple_backtest.__version__}")
     if version("simple-backtest") != simple_backtest.__version__:
         raise RuntimeError("Wheel metadata and package API versions do not match")
@@ -26,20 +26,25 @@ def main() -> None:
     data = pd.DataFrame(
         {
             "Open": prices,
-            "High": prices,
+            "High": [price + 5 for price in prices],
             "Low": prices,
-            "Close": prices,
+            "Close": [price + 5 for price in prices],
             "Volume": [1000.0] * len(prices),
         },
         index=dates,
     )
     results = Backtest(
         data,
-        BacktestConfig.zero_commission(lookback_period=1, parallel_execution=False),
+        BacktestConfig.zero_commission(
+            initial_capital=1000, lookback_period=1, parallel_execution=False
+        ),
     ).run([BuyAndHoldStrategy(shares=1)])
     metric = results.get_strategy("BuyAndHold").metrics["total_return"]
     if not isfinite(metric):
         raise RuntimeError(f"Wheel smoke produced non-finite total_return: {metric}")
+    strategy = results.get_strategy("BuyAndHold")
+    if strategy.portfolio_values.iloc[0] != 1000 or not isclose(metric, 0.7):
+        raise RuntimeError("Wheel smoke failed the starting-cash and closing-equity oracle")
     if not plot_equity_curve(results).data:
         raise RuntimeError("Wheel smoke produced an empty equity plot")
 

@@ -418,7 +418,10 @@ def validate_date_range(
         )
 
     # Ensure enough data for lookback before trading starts
-    start_idx = data.index.get_indexer([effective_start], method="nearest")[0]
+    start_idx = data.index.searchsorted(effective_start, side="left")
+    end_idx = data.index.searchsorted(effective_end, side="right")
+    if start_idx >= end_idx:
+        raise DateRangeError("Requested date interval contains no trading bars")
     if start_idx < lookback_period:
         raise DateRangeError(
             f"Not enough data before trading start date for lookback_period={lookback_period}. "

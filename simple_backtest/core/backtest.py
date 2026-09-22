@@ -3,8 +3,10 @@
 from copy import deepcopy
 from datetime import datetime
 from math import isfinite
+from platform import python_version
 from typing import Any, Callable, Dict, List
 
+import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 from tqdm import tqdm
@@ -12,6 +14,7 @@ from tqdm import tqdm
 from simple_backtest.config.settings import BacktestConfig
 from simple_backtest.core.portfolio import Portfolio
 from simple_backtest.core.results import BacktestResults
+from simple_backtest.core.serialization import data_fingerprint, json_value
 from simple_backtest.metrics.calculator import calculate_metrics
 from simple_backtest.strategy.base import Strategy
 from simple_backtest.utils.commission import create_custom_commission, get_commission_calculator
@@ -47,7 +50,8 @@ class Backtest:
         """
         # Copy before normalization so validation never mutates caller-owned data.
         self.data = data.copy(deep=True)
-        self.config = config
+        self.config = config.model_copy(deep=True)
+        config = self.config
         validate_dataframe(
             self.data,
             strict=True,
@@ -72,6 +76,8 @@ class Backtest:
             self.trading_end_date,
             self.config.lookback_period,
         )
+        self._start_idx = int(self.data.index.searchsorted(self.trading_start_date, side="left"))
+        self._end_idx = int(self.data.index.searchsorted(self.trading_end_date, side="right")) - 1
 
         # Setup commission calculator
         if commission_calculator is None:
@@ -86,6 +92,41 @@ class Backtest:
         )
         self.periods_per_year = config.periods_per_year or self._infer_periods_per_year()
         self._benchmark_results: Dict[str, Any] | None = None
+        from simple_backtest import __version__
+
+        self._metadata = json_value(
+            {
+                "package_version": __version__,
+                "pandas_version": pd.__version__,
+                "numpy_version": np.__version__,
+                "python_version": python_version(),
+                "config": self.config.model_dump(),
+                "random_seed": config.random_seed,
+                "data": {
+                    "fingerprint": data_fingerprint(self.data),
+                    "rows": len(self.data),
+                    "start": self.data.index[0],
+                    "end": self.data.index[-1],
+                    "timezone": str(self.data.index.tz) if self.data.index.tz else None,
+                },
+                "periods_per_year": self.periods_per_year,
+                "custom_commission": self._callable_name(commission_calculator),
+                "custom_execution_price": self._callable_name(execution_price_extractor),
+            }
+        )
+
+    @staticmethod
+    def _callable_name(callback: Callable | None) -> str | None:
+        if callback is None:
+            return None
+        module = getattr(callback, "__module__", type(callback).__module__)
+        name = getattr(callback, "__qualname__", type(callback).__qualname__)
+        return f"{module}.{name}"
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        """Return input provenance; custom callbacks are identified, not serialized."""
+        return deepcopy(self._metadata)
 
     def _setup_trading_range(self) -> None:
         """Set trading date range from config and data."""
@@ -160,35 +201,85 @@ class Backtest:
         row: pd.Series,
         reference_price: float,
         timestamp: datetime,
+        outcomes: List[Dict[str, Any]] | None = None,
     ) -> Dict[str, Any] | None:
-        """Execute one validated prediction under configured simulation constraints."""
+        """Execute a validated order and record normal fills/rejections separately from errors."""
         signal = prediction["signal"]
+        if signal == "hold":
+            return None
+        budget = prediction.get("budget")
+        available_cash = portfolio.cash
         requested_size = prediction["size"]
-        size = self._cap_order_size(row, requested_size)
-        if signal == "hold" or size <= 0:
+        outcome = {
+            "timestamp": timestamp,
+            "signal": signal,
+            "requested_shares": requested_size if budget is None else None,
+            "requested_budget": budget,
+            "filled_shares": 0.0,
+            "status": "rejected",
+            "reason": None,
+            "forced_liquidation": prediction.get("forced_liquidation", False),
+        }
+
+        def reject(reason: str) -> None:
+            outcome["reason"] = reason
+            if outcomes is not None:
+                outcomes.append(outcome)
+
+        if (budget if budget is not None else requested_size) <= 0:
+            reject("zero_size")
+            return None
+        if self._cap_order_size(row, 1.0) <= 0:
+            reject("zero_volume")
             return None
 
         fill_price = self._fill_price(reference_price, signal)
+        if budget is not None:
+            requested_size = self._max_affordable_quantity(min(budget, portfolio.cash), fill_price)
+            if requested_size <= 0:
+                reject("insufficient_cash")
+                return None
+        size = self._cap_order_size(row, requested_size)
         commission = self.commission_calculator(size, fill_price)
-        trade_info = None
-        if signal == "buy" and portfolio.can_afford(size, fill_price, commission):
-            trade_info = portfolio.execute_buy(
-                shares=size,
-                price=fill_price,
-                commission=commission,
-                timestamp=timestamp,
-            )
-        elif signal == "sell" and portfolio.get_total_shares() >= size:
+        if signal == "buy":
+            if not portfolio.can_afford(size, fill_price, commission) or (
+                budget is not None and size * fill_price + commission > budget
+            ):
+                reject("insufficient_cash")
+                return None
+            trade_info = portfolio.execute_buy(size, fill_price, commission, timestamp)
+        else:
+            if portfolio.get_total_shares() < size:
+                reject("insufficient_shares")
+                return None
+            if portfolio.cash + size * fill_price < commission:
+                reject("insufficient_cash")
+                return None
             trade_info = portfolio.execute_sell(
-                shares=size,
-                price=fill_price,
-                commission=commission,
-                timestamp=timestamp,
-                order_ids=prediction.get("order_ids"),
+                size, fill_price, commission, timestamp, order_ids=prediction.get("order_ids")
             )
 
-        if trade_info is not None and size < requested_size:
+        partial = size < requested_size
+        reason = "volume_limit" if partial else None
+        if budget is not None and budget > available_cash:
+            partial = True
+            reason = reason or "insufficient_cash"
+        outcome.update(
+            status="partial" if partial else "filled",
+            reason=reason,
+            filled_shares=size,
+            price=fill_price,
+            commission=commission,
+            order_id=trade_info["order_id"],
+        )
+        if outcomes is not None:
+            outcomes.append(outcome)
+        if size < requested_size:
             trade_info["requested_shares"] = requested_size
+        if budget is not None:
+            trade_info["requested_budget"] = budget
+        if prediction.get("forced_liquidation"):
+            trade_info["forced_liquidation"] = True
         return trade_info
 
     def run(self, strategies: List[Strategy]) -> BacktestResults:
@@ -208,6 +299,7 @@ class Backtest:
 
         # Reset strategies
         for strategy in strategies:
+            strategy._random_seed = self.config.random_seed
             strategy.reset_state()
 
         try:
@@ -249,15 +341,27 @@ class Backtest:
         :return: Results dict with metrics, portfolio_values, trade_history, returns
         """
         # Create portfolio
-        portfolio = Portfolio(self.config.initial_capital)
+        portfolio = Portfolio(
+            self.config.initial_capital,
+            record_position_snapshots=self.config.record_position_snapshots,
+        )
 
         # Track portfolio values over time
-        portfolio_values = []
-        timestamps = []
+        # Include the pre-trading cash baseline so first-bar costs enter every metric.
+        portfolio_values = [self.config.initial_capital]
+        timestamps = [self.data.index[self._start_idx - 1]]
         exposure = []
         errors: List[Dict[str, Any]] = []
-        state_snapshot = portfolio.get_state_snapshot()
+        outcomes: List[Dict[str, Any]] = []
         strategy_trade_history: List[Dict[str, Any]] = []
+        metadata = {
+            **self.metadata,
+            "strategy": {
+                "class": f"{type(strategy).__module__}.{type(strategy).__qualname__}",
+                "name": strategy.get_name(),
+                "parameters": json_value(strategy.get_parameters()),
+            },
+        }
 
         def notify_trade(
             trade_info: Dict[str, Any],
@@ -265,11 +369,10 @@ class Backtest:
             current_price: float,
             is_last_day: bool,
         ) -> None:
-            nonlocal state_snapshot, strategy_trade_history
-            state_snapshot = portfolio.get_state_snapshot()
-            strategy_trade_history = portfolio.get_trade_history()
+            # Copy only the new record; earlier records already belong to the strategy.
+            strategy_trade_history.append(deepcopy(trade_info))
             strategy._portfolio_state = {
-                **state_snapshot,
+                **portfolio.get_state_snapshot(include_positions=False),
                 "portfolio_value": portfolio.get_portfolio_value(current_price),
                 "current_price": current_price,
                 "timestamp": current_date,
@@ -287,8 +390,7 @@ class Backtest:
                 )
 
         # Get trading date range
-        start_idx = self.data.index.get_indexer([self.trading_start_date], method="nearest")[0]
-        end_idx = self.data.index.get_indexer([self.trading_end_date], method="nearest")[0]
+        start_idx, end_idx = self._start_idx, self._end_idx
 
         # Progress bar (only for non-parallel execution)
         iterator = range(start_idx, end_idx + 1)
@@ -309,15 +411,16 @@ class Backtest:
             lookback_data = self.data.iloc[lookback_start:i]
 
             current_price = self._extract_price(current_row)
-            portfolio_value = portfolio.get_portfolio_value(current_price)
+            signal_price = float(lookback_data["Close"].iloc[-1])
+            portfolio_value = portfolio.get_portfolio_value(signal_price)
 
             if len(lookback_data) >= self.config.lookback_period:
                 prediction: Dict[str, Any] | None = None
                 try:
                     strategy._portfolio_state = {
-                        **state_snapshot,
+                        **portfolio.get_state_snapshot(include_positions=False),
                         "portfolio_value": portfolio_value,
-                        "current_price": current_price,
+                        "current_price": signal_price,
                         "timestamp": current_date,
                         "is_last_day": i == end_idx,
                     }
@@ -327,6 +430,7 @@ class Backtest:
                     )
                     strategy.validate_prediction(prediction)
                 except Exception as error:
+                    prediction = None
                     self._handle_strategy_error(
                         strategy,
                         current_date,
@@ -345,6 +449,7 @@ class Backtest:
                             current_row,
                             current_price,
                             current_date,
+                            outcomes,
                         )
                     except Exception as error:
                         self._handle_strategy_error(
@@ -366,10 +471,12 @@ class Backtest:
                             "signal": "sell",
                             "size": portfolio.get_total_shares(),
                             "order_ids": None,
+                            "forced_liquidation": True,
                         },
                         current_row,
                         current_price,
                         current_date,
+                        outcomes,
                     )
                     if liquidation is not None:
                         liquidation["forced_liquidation"] = True
@@ -384,7 +491,7 @@ class Backtest:
                     )
 
             # Metrics use end-of-period equity after every fill and commission.
-            portfolio_values.append(portfolio.get_portfolio_value(current_price))
+            portfolio_values.append(portfolio.get_portfolio_value(float(current_row["Close"])))
             timestamps.append(current_date)
             exposure.append(portfolio.get_total_shares() > 0)
 
@@ -395,7 +502,7 @@ class Backtest:
         returns = portfolio_series.pct_change().dropna()
 
         benchmark_for_period = benchmark_values.reindex(timestamps)
-        exposure_series = pd.Series(exposure, index=timestamps, dtype=bool)
+        exposure_series = pd.Series(exposure, index=timestamps[1:], dtype=bool)
 
         # Calculate metrics
         metrics = calculate_metrics(
@@ -414,6 +521,8 @@ class Backtest:
             "trade_history": portfolio.get_trade_history(),
             "returns": returns,
             "errors": errors,
+            "order_outcomes": outcomes,
+            "metadata": metadata,
         }
 
     def _handle_strategy_error(
@@ -443,54 +552,49 @@ class Backtest:
     def _run_benchmark(self) -> Dict[str, Any]:
         """Run buy-and-hold benchmark."""
         # Create portfolio
-        portfolio = Portfolio(self.config.initial_capital)
+        portfolio = Portfolio(
+            self.config.initial_capital,
+            record_position_snapshots=self.config.record_position_snapshots,
+        )
 
         # Get first trading date
-        start_idx = self.data.index.get_indexer([self.trading_start_date], method="nearest")[0]
-        end_idx = self.data.index.get_indexer([self.trading_end_date], method="nearest")[0]
+        start_idx, end_idx = self._start_idx, self._end_idx
 
         # Track portfolio values
-        portfolio_values = []
-        timestamps = []
+        portfolio_values = [self.config.initial_capital]
+        timestamps = [self.data.index[start_idx - 1]]
         exposure = []
 
+        outcomes: List[Dict[str, Any]] = []
         for i in range(start_idx, end_idx + 1):
             current_date = self.data.index[i]
             current_row = self.data.iloc[i]
             current_price = self._extract_price(current_row)
 
-            should_accumulate = not (i == end_idx and self.config.final_liquidation)
-            can_buy_this_bar = i == start_idx
-            if should_accumulate and can_buy_this_bar and portfolio.cash > 0:
-                buy_price = self._fill_price(current_price, "buy")
-                affordable_size = self._max_affordable_quantity(portfolio.cash, buy_price)
-                buy_size = self._cap_order_size(current_row, affordable_size)
-                if buy_size > 0:
-                    commission = self.commission_calculator(buy_size, buy_price)
-                    if portfolio.can_afford(buy_size, buy_price, commission):
-                        trade = portfolio.execute_buy(
-                            shares=buy_size,
-                            price=buy_price,
-                            commission=commission,
-                            timestamp=current_date,
-                        )
-                        if buy_size < affordable_size:
-                            trade["requested_shares"] = affordable_size
+            if i == start_idx and not (i == end_idx and self.config.final_liquidation):
+                self._execute_order(
+                    portfolio,
+                    {"signal": "buy", "size": 0, "budget": portfolio.cash},
+                    current_row,
+                    current_price,
+                    current_date,
+                    outcomes,
+                )
+            if i == end_idx and self.config.final_liquidation and portfolio.get_total_shares() > 0:
+                self._execute_order(
+                    portfolio,
+                    {
+                        "signal": "sell",
+                        "size": portfolio.get_total_shares(),
+                        "forced_liquidation": True,
+                    },
+                    current_row,
+                    current_price,
+                    current_date,
+                    outcomes,
+                )
 
-            if i == end_idx and self.config.final_liquidation:
-                sell_size = self._cap_order_size(current_row, portfolio.get_total_shares())
-                if sell_size > 0:
-                    sell_price = self._fill_price(current_price, "sell")
-                    commission = self.commission_calculator(sell_size, sell_price)
-                    trade = portfolio.execute_sell(
-                        shares=sell_size,
-                        price=sell_price,
-                        commission=commission,
-                        timestamp=current_date,
-                    )
-                    trade["forced_liquidation"] = True
-
-            portfolio_value = portfolio.get_portfolio_value(current_price)
+            portfolio_value = portfolio.get_portfolio_value(float(current_row["Close"]))
             portfolio_values.append(portfolio_value)
             timestamps.append(current_date)
             exposure.append(portfolio.get_total_shares() > 0)
@@ -507,7 +611,7 @@ class Backtest:
             initial_capital=self.config.initial_capital,
             risk_free_rate=self.config.risk_free_rate,
             periods_per_year=self.periods_per_year,
-            exposure=pd.Series(exposure, index=timestamps, dtype=bool),
+            exposure=pd.Series(exposure, index=timestamps[1:], dtype=bool),
         )
 
         return {
@@ -516,4 +620,9 @@ class Backtest:
             "trade_history": portfolio.get_trade_history(),
             "returns": returns,
             "errors": [],
+            "order_outcomes": outcomes,
+            "metadata": {
+                **self.metadata,
+                "strategy": {"name": "benchmark", "class": "buy_and_hold"},
+            },
         }

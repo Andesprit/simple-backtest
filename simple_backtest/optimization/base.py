@@ -1,12 +1,15 @@
 """Base optimizer class for strategy parameter optimization."""
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Dict, List, Type
 
 import pandas as pd
 
 from simple_backtest.config.settings import BacktestConfig
 from simple_backtest.core.backtest import Backtest
+from simple_backtest.core.serialization import json_value, write_json
+from simple_backtest.metrics.objectives import rank_results
 from simple_backtest.strategy.base import Strategy
 
 
@@ -30,6 +33,43 @@ class Optimizer(ABC):
         """
         self._name = name or self.__class__.__name__
         self.failures: List[Dict[str, Any]] = []
+        self.summary: Dict[str, Any] = {}
+
+    def _prepare_search(self, param_space: Dict[str, List[Any]]) -> Dict[str, List[Any]]:
+        """Validate finite parameter lists and remove duplicate values in insertion order."""
+        self.failures = []
+        self.summary = {"attempted_evaluations": 0, "unique_candidates": 0}
+        cleaned = {}
+        for name, values in param_space.items():
+            if not isinstance(values, (list, tuple, range)) or not values:
+                raise ValueError(f"Parameter '{name}' must have a non-empty sequence of candidates")
+            unique: list[Any] = []
+            for value in values:
+                if value not in unique:
+                    unique.append(value)
+            cleaned[name] = unique
+        # An empty mapping deliberately evaluates the strategy's defaults once.
+        return cleaned
+
+    def _finish_search(
+        self, rows: list[dict[str, Any]], metric: str, metadata: dict[str, Any]
+    ) -> pd.DataFrame:
+        frame = pd.DataFrame(rows)
+        ranked = rank_results(frame, metric)
+        self.summary.update(
+            successful_evaluations=len(frame),
+            failed_evaluations=len(self.failures),
+            undefined_objectives=len(frame) - len(ranked),
+        )
+        ranked.attrs["search"] = json_value(
+            {
+                **metadata,
+                **self.summary,
+                "objective": metric,
+                "failures": self.failures.copy(),
+            }
+        )
+        return ranked
 
     def _record_failure(self, parameters: Dict[str, Any], error: Exception) -> None:
         """Record an expected invalid parameter combination."""
@@ -40,6 +80,11 @@ class Optimizer(ABC):
                 "message": str(error),
             }
         )
+
+    @staticmethod
+    def export_json(results: pd.DataFrame, path: str | Path) -> None:
+        """Save ranked candidates and the provenance attached to their DataFrame."""
+        write_json(path, {"schema_version": 1, "results": results, "metadata": results.attrs})
 
     @abstractmethod
     def optimize(

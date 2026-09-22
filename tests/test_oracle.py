@@ -19,7 +19,7 @@ class OracleStrategy(Strategy):
             {
                 "window_end": data.index[-1],
                 "execution_time": self._portfolio_state["timestamp"],
-                "execution_price": self._portfolio_state["current_price"],
+                "signal_price": self._portfolio_state["current_price"],
             }
         )
         actions = [self.buy(10), self.hold(), self.buy(5), self.sell(12)]
@@ -59,6 +59,7 @@ def oracle_result(oracle_data):
         execution_price="open",
         parallel_execution=False,
         periods_per_year=365,
+        record_position_snapshots=True,
     )
     strategy = OracleStrategy()
     result = Backtest(oracle_data, config).run([strategy]).get_strategy(strategy.get_name())
@@ -71,7 +72,7 @@ def test_signal_window_excludes_execution_bar(oracle_result):
     assert strategy.observations[0] == {
         "window_end": pd.Timestamp("2020-01-02"),
         "execution_time": pd.Timestamp("2020-01-03"),
-        "execution_price": 102.0,
+        "signal_price": 101.0,
     }
 
 
@@ -95,7 +96,7 @@ def test_equity_series_and_pnl_identity_are_exact(oracle_result):
     _, result = oracle_result
 
     assert result.portfolio_values.tolist() == pytest.approx(
-        [9998.98, 10008.98, 10018.46, 10032.20]
+        [10000.0, 9998.98, 10008.98, 10018.46, 10032.20]
     )
     sell = result.trade_history[-1]
     remaining_position = next(iter(sell["positions"].values()))

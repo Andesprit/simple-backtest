@@ -148,7 +148,8 @@ class TestDCAStrategy:
         prediction = strategy.predict(sample_data.head(10), [])
 
         assert prediction["signal"] == "buy"
-        assert prediction["size"] == 10  # $1000 / $100 = 10 shares
+        assert prediction["size"] == 0  # Quantity is resolved at execution.
+        assert prediction["budget"] == 1000
         assert prediction["order_ids"] is None
 
     def test_interval_timing(self, sample_data):
@@ -195,7 +196,8 @@ class TestDCAStrategy:
         prediction = strategy.predict(sample_data.tail(10), [])
 
         assert prediction["signal"] == "buy"
-        assert prediction["size"] == 5
+        assert prediction["size"] == 0
+        assert prediction["budget"] == 1000
 
     def test_insufficient_cash(self, sample_data):
         """Test behavior when insufficient cash."""

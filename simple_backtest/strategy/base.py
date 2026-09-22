@@ -1,9 +1,12 @@
 """Base Strategy class using Strategy and Template Method design patterns."""
 
 from abc import ABC, abstractmethod
+from copy import deepcopy
+from inspect import signature
 from math import isfinite
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import pandas as pd
 
 
@@ -30,6 +33,12 @@ class Strategy(ABC):
     - hold(): Return hold signal
     - buy_percent(percent): Buy units worth percent of portfolio
     - buy_cash(amount): Buy units worth specific cash amount
+    - buy_budget(amount): Cap total spending including execution costs
+
+    During predict(), valuations and sizing use the last supplied Close. Sizing
+    with buy_cash/buy_percent produces fixed quantities; execution gaps or costs
+    may make them unaffordable. buy_budget leaves quantity sizing to execution.
+    trade_history is a strategy-owned copy, isolated from engine accounting.
     """
 
     required_history: int = 0
@@ -43,6 +52,27 @@ class Strategy(ABC):
         self.required_history = type(self).required_history
         self._state_initialized = False
         self._portfolio_state: Dict[str, Any] | None = None  # Injected by backtest engine
+        self._random_seed: int | None = None
+        self.rng = np.random.default_rng()
+
+    def get_parameters(self) -> Dict[str, Any]:
+        """Snapshot constructor attributes; override for parameters stored under other names."""
+        parameters: Dict[str, Any] = {}
+        for name, parameter in signature(type(self).__init__).parameters.items():
+            if name == "self" or parameter.kind in (
+                parameter.VAR_POSITIONAL,
+                parameter.VAR_KEYWORD,
+            ):
+                continue
+            if name == "name":
+                parameters[name] = self.get_name()
+            elif hasattr(self, name):
+                parameters[name] = deepcopy(getattr(self, name))
+            else:
+                parameters[name] = {
+                    "unavailable": "override get_parameters() to capture this value"
+                }
+        return parameters
 
     def get_name(self) -> str:
         """Return strategy name."""
@@ -191,6 +221,10 @@ class Strategy(ABC):
         shares = amount / current_price
         return self.buy(shares)
 
+    def buy_budget(self, amount: float) -> Dict[str, Any]:
+        """Spend at most amount including fees; execution sizes the order without price leakage."""
+        return {"signal": "buy", "size": 0, "budget": amount, "order_ids": None}
+
     def on_trade_executed(self, trade_info: Dict[str, Any]) -> None:
         """Hook called after trade execution.
 
@@ -202,6 +236,7 @@ class Strategy(ABC):
         """Reset internal state before new backtest run."""
         self._state_initialized = False
         self._portfolio_state = None
+        self.rng = np.random.default_rng(self._random_seed)
 
     def validate_prediction(self, prediction: Dict[str, Any]) -> None:
         """Validate prediction format.
@@ -237,6 +272,18 @@ class Strategy(ABC):
 
         if signal == "hold" and size != 0:
             raise ValueError(f"Strategy {self._name} returned hold with non-zero size; use size 0")
+
+        if "budget" in prediction:
+            budget = prediction["budget"]
+            if signal != "buy" or size != 0:
+                raise ValueError("Budget orders must be buy signals with size 0")
+            if (
+                isinstance(budget, bool)
+                or not isinstance(budget, (int, float))
+                or not isfinite(budget)
+                or budget < 0
+            ):
+                raise ValueError("budget must be a finite non-negative number")
 
         if signal == "sell":
             if "order_ids" not in prediction:

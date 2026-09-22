@@ -2,6 +2,25 @@
 
 Interactive Jupyter notebooks demonstrating the features and capabilities of the simple-backtest framework.
 
+## Offline verification
+
+From the repository root:
+
+```bash
+uv sync --extra dev --extra notebooks
+uv run python scripts/smoke_notebooks.py
+```
+
+This executes every tutorial in a real Python kernel using 620 seeded synthetic
+candles. Only installation cells tagged `skip-execution` are skipped, so the
+checkout under test is not replaced by the published package. Executed copies
+and failure output are saved to `build/notebooks/`; source notebooks stay clean.
+To check one tutorial, pass its path to the script.
+
+Normal interactive runs download market data. To work offline interactively,
+set `SIMPLE_BACKTEST_OFFLINE=1` before starting Jupyter. Synthetic results are
+examples of library behavior, not evidence of investment performance.
+
 ## 📚 Notebook Overview
 
 ### 1️⃣ [Basic Usage](01_basic_usage.ipynb)

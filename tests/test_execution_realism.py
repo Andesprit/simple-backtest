@@ -124,7 +124,7 @@ def test_dca_schedule_advances_only_after_an_executed_trade():
         initial_capital=5,
         lookback_period=1,
         commission_type="flat",
-        commission_value=1.0,
+        commission_value=6.0,  # The fee alone exceeds available cash.
         parallel_execution=False,
     )
     strategy = DCAStrategy(investment_amount=10, interval_days=1)

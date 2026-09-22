@@ -9,7 +9,6 @@ from tqdm import tqdm
 
 from simple_backtest.config.settings import BacktestConfig
 from simple_backtest.core.backtest import Backtest
-from simple_backtest.metrics.objectives import metric_is_maximized
 from simple_backtest.optimization.base import Optimizer
 from simple_backtest.strategy.base import Strategy
 from simple_backtest.utils.logger import get_logger
@@ -67,7 +66,7 @@ class GridSearchOptimizer(Optimizer):
         :return: DataFrame of results sorted by metric
         """
         results = []
-        self.failures = []
+        param_space = self._prepare_search(param_space)
         param_names = list(param_space.keys())
         backtest = Backtest(data, config)
         combination_count = math.prod(len(values) for values in param_space.values())
@@ -84,6 +83,8 @@ class GridSearchOptimizer(Optimizer):
         )
 
         for params in iterator:
+            self.summary["attempted_evaluations"] += 1
+            self.summary["unique_candidates"] += 1
             param_dict = dict(zip(param_names, params))
 
             try:
@@ -103,16 +104,14 @@ class GridSearchOptimizer(Optimizer):
                 continue
             results.append({**param_dict, **metrics})
 
-        # Create DataFrame
-        df = pd.DataFrame(results)
-
-        if df.empty:
-            logger.warning("All parameter combinations failed!")
-            return df
-
-        if metric not in df.columns:
-            raise ValueError(f"Metric '{metric}' not found. Available metrics: {list(df.columns)}")
-
-        return df.sort_values(metric, ascending=not metric_is_maximized(metric)).reset_index(
-            drop=True
+        return self._finish_search(
+            results,
+            metric,
+            {
+                **backtest.metadata,
+                "method": "grid",
+                "strategy_class": f"{strategy_class.__module__}.{strategy_class.__qualname__}",
+                "parameter_space": param_space,
+                "available_candidates": combination_count,
+            },
         )

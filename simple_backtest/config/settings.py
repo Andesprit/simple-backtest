@@ -58,6 +58,13 @@ class BacktestConfig(BaseModel):
         default=False,
         description="Attempt to liquidate remaining positions on the final bar",
     )
+    record_position_snapshots: bool = Field(
+        default=False,
+        description="Include full open-lot snapshots in each trade (quadratic storage when accumulating)",
+    )
+    random_seed: Optional[int] = Field(
+        default=None, ge=0, description="Seed for each strategy's local numpy random generator"
+    )
     trading_start_date: Optional[datetime] = Field(default=None, description="Trading period start")
     trading_end_date: Optional[datetime] = Field(default=None, description="Trading period end")
     parallel_execution: bool = Field(default=True, description="Parallel strategy execution")

@@ -42,14 +42,14 @@ class DCAStrategy(Strategy):
 
         # Check if it's time to buy
         if self.last_trade_date is None:
-            return self.buy_cash(min(self.investment_amount, self.get_cash()))
+            return self.buy_budget(min(self.investment_amount, self.get_cash()))
 
         # Calculate days since last buy
         if current_date is not None:
             days_elapsed = (current_date - self.last_trade_date).days
 
             if days_elapsed >= self.interval_days:
-                return self.buy_cash(min(self.investment_amount, self.get_cash()))
+                return self.buy_budget(min(self.investment_amount, self.get_cash()))
 
         return self.hold()
 

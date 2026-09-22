@@ -15,15 +15,17 @@ class Portfolio:
     multipliers, financing, and currency conversion are not modeled.
     """
 
-    def __init__(self, initial_capital: float):
+    def __init__(self, initial_capital: float, *, record_position_snapshots: bool = False):
         """Initialize portfolio.
 
         :param initial_capital: Starting cash (must be positive)
+        :param record_position_snapshots: Include open-lot copies in trade records
         """
         if not isfinite(initial_capital) or initial_capital <= 0:
             raise ValueError(f"initial_capital must be positive, got {initial_capital}")
 
         self.initial_capital = initial_capital
+        self.record_position_snapshots = record_position_snapshots
         self.cash = initial_capital
         self.positions: Dict[str, Dict[str, Any]] = {}
         self.trade_history: List[Dict[str, Any]] = []
@@ -110,9 +112,11 @@ class Portfolio:
             "commission": commission,
             "portfolio_value": self.get_portfolio_value(price),
             "cash": self.cash,
-            "positions": deepcopy(self.positions),
+            "total_shares": self.get_total_shares(),
             "pnl": None,
         }
+        if self.record_position_snapshots:
+            trade_info["positions"] = deepcopy(self.positions)
 
         self.trade_history.append(trade_info)
         return trade_info
@@ -230,10 +234,12 @@ class Portfolio:
             "commission": commission,
             "portfolio_value": self.get_portfolio_value(price),
             "cash": self.cash,
-            "positions": deepcopy(self.positions),
+            "total_shares": self.get_total_shares(),
             "pnl": total_pnl,
             "fills": fills,
         }
+        if self.record_position_snapshots:
+            trade_info["positions"] = deepcopy(self.positions)
 
         self.trade_history.append(trade_info)
         return trade_info
@@ -249,13 +255,15 @@ class Portfolio:
         self.trade_history.clear()
         self._total_shares = 0.0
 
-    def get_state_snapshot(self) -> Dict[str, Any]:
-        """Return current state snapshot."""
-        return {
+    def get_state_snapshot(self, *, include_positions: bool = True) -> Dict[str, Any]:
+        """Return current state, optionally copying open lots."""
+        state: Dict[str, Any] = {
             "cash": self.cash,
-            "positions": deepcopy(self.positions),
             "total_shares": self.get_total_shares(),
         }
+        if include_positions:
+            state["positions"] = deepcopy(self.positions)
+        return state
 
     @staticmethod
     def _validate_order_values(shares: float, price: float, commission: float) -> None:

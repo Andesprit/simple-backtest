@@ -1,6 +1,6 @@
 """A small, transparent framework for long-only strategy backtests."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 # Core imports
 # Commission imports
@@ -22,6 +22,7 @@ from simple_backtest.optimization import (
     RandomSearchOptimizer,
     WalkForwardOptimizer,
 )
+from simple_backtest.optimization.results import WalkForwardFold, WalkForwardReport
 from simple_backtest.strategy.base import Strategy
 from simple_backtest.strategy.buy_and_hold import BuyAndHoldStrategy
 from simple_backtest.strategy.dca import DCAStrategy
@@ -44,6 +45,8 @@ __all__ = [
     "GridSearchOptimizer",
     "RandomSearchOptimizer",
     "WalkForwardOptimizer",
+    "WalkForwardFold",
+    "WalkForwardReport",
     # Commission
     "Commission",
     "PercentageCommission",

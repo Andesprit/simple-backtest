@@ -121,35 +121,40 @@ uv sync --extra dev --extra notebooks
 
 ## 🚀 Quick Start
 
-Get up and running in 3 simple steps:
+This example runs offline after installing `simple-backtest`. Its synthetic prices
+make the output reproducible; they are not historical investment performance.
 
 ```python
-# 1. Get data (using yfinance for demo, but you can use any other data source)
-import yfinance as yf
-data = yf.download("AAPL", start="2020-01-01", end="2023-12-31")
+import pandas as pd
+from simple_backtest import Backtest, BacktestConfig, BuyAndHoldStrategy
 
-# 2. Create strategy (you can use a basic one or create your own)
-from simple_backtest import Backtest, BacktestConfig, MovingAverageStrategy
-
-strategy = MovingAverageStrategy(short_window=10, long_window=30, shares=10)
-
-# 3. Run backtest
-config = BacktestConfig.default(initial_capital=10000)
-backtest = Backtest(data, config)
-results = backtest.run([strategy])
-
-# View results
-print(results.get_strategy(strategy.get_name()).summary())
+data = pd.DataFrame(
+    {
+        "Open": [100.0, 100.0, 100.0, 100.0, 100.0],
+        "High": [130.0, 130.0, 130.0, 130.0, 130.0],
+        "Low": [90.0, 90.0, 90.0, 90.0, 90.0],
+        "Close": [100.0, 110.0, 120.0, 115.0, 125.0],
+    },
+    index=pd.date_range("2024-01-01", periods=5),
+)
+config = BacktestConfig.zero_commission(
+    initial_capital=1000, lookback_period=1, parallel_execution=False
+)
+strategy = BuyAndHoldStrategy(shares=1)
+result = Backtest(data, config).run([strategy]).get_strategy("BuyAndHold")
+print(f"Final value: ${result.metrics['final_value']:.2f}")
+print(f"Total return: {result.metrics['total_return']:.2f}%")
 ```
 
-**Output:**
+```text
+Final value: $1025.00
+Total return: 2.50%
 ```
-Total Return: 227.91%
-CAGR: 36.84%
-Sharpe Ratio: 1.09
-Max Drawdown: 30.60%
-Win Rate: 100.00%
-```
+
+The strategy buys one share at the second bar's $100 open. The remaining $900
+cash plus that share at the final $125 close gives $1,025. Replace `data` with
+your own OHLC DataFrame; add Volume when using volume participation limits.
+For moving-average examples below, supply enough rows for their lookback windows.
 
 ## 📚 Documentation
 
@@ -201,6 +206,7 @@ class MyStrategy(Strategy):
 - `self.sell_all()` - Sell all positions
 - `self.buy_percent(percent)` - Buy shares worth % of portfolio
 - `self.buy_cash(amount)` - Buy shares worth specific amount
+- `self.buy_budget(amount)` - Spend at most this amount, including fees and slippage
 
 ### Configuration Presets
 
@@ -293,7 +299,24 @@ print(results.head(5))
 Set each strategy's `required_history` to the minimum number of rows its
 indicators need. Optimizers record parameter combinations that exceed
 `lookback_period` as failed candidates instead of running invalid simulations.
-Use an explicit `random_state` for reproducible random searches.
+Random search samples without replacement, up to `n_iter` unique combinations;
+duplicate parameter values are removed and empty candidate lists are rejected.
+Use an explicit `random_state` for reproducible candidate selection. Set
+`BacktestConfig(random_seed=42)` and use `self.rng` in stochastic strategies.
+`RandomSearchOptimizer(repeats=3, random_state=42)` runs three independently
+seeded trials per candidate and includes `trial` and `simulation_seed` columns.
+Repeated trials are ranked individually, so inspect their distribution before
+choosing parameters. `optimizer.summary` reports attempted evaluations, unique
+candidates, failures, and excluded undefined objectives.
+
+`WalkForwardOptimizer.optimize()` still returns a chronological DataFrame.
+Use `optimize_report()` for selected parameters, strategy and benchmark equity,
+trades, and diagnostics for each fold. Every test fold starts with fresh initial
+capital and empty positions; aggregate metrics summarize independent folds and
+do not represent a continuous portfolio.
+
+See the executable [research guide](docs/REPRODUCIBLE_RESEARCH.md) for seeded
+experiments, detailed walk-forward reports, and JSON exports.
 
 ### Custom Commission Models
 
@@ -333,6 +356,9 @@ results = backtest.run([strategy])
 
 Custom commission callbacks must be deterministic and side-effect free because
 the engine evaluates them for benchmark affordability as well as strategy fills.
+Budget sizing uses bisection and requires total cost (quantity times price plus
+commission) to be nondecreasing with quantity. The built-in fee models satisfy
+this requirement.
 
 For a custom execution price, set `execution_price="custom"` and pass
 `execution_price_extractor=` to `Backtest`. Strategy exceptions raise with
@@ -341,11 +367,27 @@ you intentionally want structured diagnostics in `StrategyResult.errors`.
 
 ### Execution and Timing Assumptions
 
-Signals receive only rows strictly before the execution bar, so a signal formed
-from the supplied window cannot see its own fill price. Orders fill at the
+Signals receive only rows strictly before the execution bar. Inside `predict()`,
+portfolio valuation and the `buy_cash()` / `buy_percent()` sizing helpers use the
+last available close. They never use the execution bar's price. These helpers
+produce fixed share quantities: price gaps, fees, or slippage can make an order
+unaffordable, in which case it is rejected. Trade callbacks receive completed fills. Orders fill at the
 configured bar price (`open`, `close`, `typical`, or `custom`). The legacy
 `vwap` option remains as a deprecated alias for the OHLC typical price
 `(high + low + close) / 3`; one OHLCV bar is not enough to calculate true VWAP.
+
+Use `buy_budget(amount)` to request a spending cap instead of a fixed quantity.
+The engine sizes it at execution, including commission, spread, and slippage,
+without exposing the execution price to `predict()`. Cash and volume limits can
+reduce the fill. DCA uses budget orders, so its `investment_amount` now includes
+fees and can invest the remaining cash without an avoidable rejection.
+
+`StrategyResult.order_outcomes` records each non-hold attempt with its requested
+shares or budget, filled shares, `filled` / `partial` / `rejected` status, and a
+reason such as `insufficient_cash`, `insufficient_shares`, `zero_volume`,
+`volume_limit`, or `zero_size`. Rejections are ordinary execution outcomes;
+invalid predictions and callback failures follow `error_policy` and appear in
+`errors` when continuing is enabled.
 
 Execution realism is deterministic and opt-in:
 
@@ -363,6 +405,17 @@ the unfilled remainder is cancelled; the engine does not maintain resting
 orders. `final_liquidation=False` is the default, so open positions remain
 marked to the final close. Enabling it applies the same cost and volume rules to
 both strategies and the benchmark.
+
+Equity is marked at each bar's Close, independently of the chosen execution
+price. `portfolio_values` starts with a cash-only baseline at the timestamp of
+the last bar before trading. `returns` therefore includes the first trading
+bar's costs and price movement. The baseline is excluded from exposure time.
+Only bars inside the requested trading interval can execute orders.
+
+Trade records contain cash and `total_shares` after each fill. Set
+`record_position_snapshots=True` to also include the full `positions` dictionary
+in each trade. This optional detail can require quadratic storage for strategies
+that accumulate many lots; the default keeps records compact.
 
 Annualized metrics infer observations per year from the data's timestamp span.
 For short, irregular, or mixed-frequency data, set `periods_per_year`
@@ -392,6 +445,13 @@ disable_logging()
 ## 📊 Performance Metrics
 
 The framework calculates 20+ metrics automatically:
+
+Sortino uses the root mean square shortfall below the periodic risk-free target,
+including zero shortfalls for observations above target. With no downside its
+denominator is zero and the ratio is `NaN`. Optimizer rankings and best/worst
+selection exclude undefined (`NaN`) objectives; selection raises if all values
+are undefined. Legitimate infinite metrics, such as profit factor with gains
+and no losses, remain rankable.
 
 ### Returns
 - Total Return (%)
@@ -449,6 +509,20 @@ uv run pytest tests/test_strategy.py
 # Run specific test
 uv run pytest tests/test_strategy.py::test_strategy_initialization
 ```
+
+### Executable Examples and Performance
+
+```bash
+uv sync --extra dev --extra notebooks
+uv run python scripts/smoke_notebooks.py
+uv run python scripts/benchmark_accumulation.py
+```
+
+The notebook check executes all six tutorials on seeded synthetic candles,
+skipping only tagged installation cells. Executed notebooks, including failure
+output, are saved to `build/notebooks/`. CI runs these checks before producing
+release artifacts. Publishing reuses the full CI workflow for the release commit
+and uploads those validated artifacts to PyPI.
 
 ### Code Quality
 

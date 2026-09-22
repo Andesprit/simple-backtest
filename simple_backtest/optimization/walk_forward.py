@@ -1,12 +1,15 @@
 """Expanding-window, out-of-sample parameter optimization."""
 
+from copy import deepcopy
 from typing import Any, Dict, List, Type
 
 import pandas as pd
 
 from simple_backtest.config.settings import BacktestConfig
+from simple_backtest.core.backtest import Backtest
 from simple_backtest.optimization.base import Optimizer
 from simple_backtest.optimization.grid_search import GridSearchOptimizer
+from simple_backtest.optimization.results import WalkForwardFold, WalkForwardReport
 from simple_backtest.strategy.base import Strategy
 from simple_backtest.utils.logger import get_logger
 
@@ -46,6 +49,7 @@ class WalkForwardOptimizer(Optimizer):
         self.n_splits = n_splits
         self.base_optimizer = base_optimizer or GridSearchOptimizer(verbose=verbose)
         self.verbose = verbose
+        self.report: WalkForwardReport | None = None
 
     def optimize(
         self,
@@ -61,6 +65,8 @@ class WalkForwardOptimizer(Optimizer):
         includes prior rows for lookback context, but trading starts at the first
         test timestamp.
         """
+        self.report = None
+        param_space = self._prepare_search(param_space)
         split_idx = int(len(data) * self.train_size)
         remaining = len(data) - split_idx
         if split_idx <= config.lookback_period:
@@ -70,9 +76,12 @@ class WalkForwardOptimizer(Optimizer):
                 f"Test region has {remaining} rows, fewer than n_splits={self.n_splits}"
             )
 
+        if remaining < 2 * self.n_splits:
+            raise ValueError("Each test fold needs at least two rows")
         fold_sizes = self._fold_sizes(remaining)
         param_names = list(param_space)
         rows: list[dict[str, Any]] = []
+        folds: list[WalkForwardFold] = []
         test_start_idx = split_idx
 
         for fold_number, fold_size in enumerate(fold_sizes, start=1):
@@ -106,6 +115,11 @@ class WalkForwardOptimizer(Optimizer):
             if metric not in train_results:
                 raise ValueError(f"Metric '{metric}' was not produced by the base optimizer")
 
+            train_results = train_results.dropna(subset=[metric])
+            if train_results.empty:
+                raise RuntimeError(
+                    f"Objective '{metric}' is undefined for every candidate in fold {fold_number}"
+                )
             selected = train_results.iloc[0]
             # Selecting an entire pandas row can coerce integer parameters to
             # floats. Recover the original user-provided objects before
@@ -124,11 +138,14 @@ class WalkForwardOptimizer(Optimizer):
                     "trading_end_date": test_data.index[-1],
                 }
             )
-            test_metrics = self._run_backtest(
-                evaluation_data,
-                evaluation_config,
-                strategy_class(**parameters),
+            strategy = strategy_class(**parameters)
+            evaluation = Backtest(evaluation_data, evaluation_config).run([strategy])
+            result = evaluation.get_strategy(strategy.get_name())
+            assert evaluation.benchmark is not None
+            folds.append(
+                WalkForwardFold(fold_number, deepcopy(parameters), result, evaluation.benchmark)
             )
+            test_metrics = result.metrics
 
             train_metrics = {
                 key: value for key, value in selected.items() if key not in param_names
@@ -147,7 +164,24 @@ class WalkForwardOptimizer(Optimizer):
             rows.append(row)
             test_start_idx = test_end_idx
 
-        return pd.DataFrame(rows)
+        frame = pd.DataFrame(rows)
+        self.report = WalkForwardReport(frame.copy(deep=True), folds)
+        self.summary = self.report.aggregate_metrics
+        frame.attrs["fold_policy"] = {"capital": "reset", "positions": "reset"}
+        return frame
+
+    def optimize_report(
+        self,
+        data: pd.DataFrame,
+        config: BacktestConfig,
+        strategy_class: Type[Strategy],
+        param_space: Dict[str, List[Any]],
+        metric: str = "sharpe_ratio",
+    ) -> WalkForwardReport:
+        """Run optimization and return the detailed report instead of only its DataFrame."""
+        self.optimize(data, config, strategy_class, param_space, metric)
+        assert self.report is not None
+        return self.report
 
     def _fold_sizes(self, test_rows: int) -> list[int]:
         """Split all test rows across folds, assigning remainder to later folds."""

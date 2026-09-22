@@ -56,7 +56,7 @@ def test_calculate_sortino_ratio():
     # No downside returns
     returns = pd.Series([0.01, 0.02, 0.03])
     sortino = defs.calculate_sortino_ratio(returns)
-    assert sortino == 0.0
+    assert pd.isna(sortino)
 
 
 def test_calculate_max_drawdown():

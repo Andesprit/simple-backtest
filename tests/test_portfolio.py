@@ -247,7 +247,7 @@ def test_buy_rejects_an_existing_order_id_without_deducting_cash():
 
 def test_trade_history_contains_immutable_position_snapshots():
     """Later fills must not rewrite earlier trade records."""
-    portfolio = Portfolio(initial_capital=1000.0)
+    portfolio = Portfolio(initial_capital=1000.0, record_position_snapshots=True)
     buy = portfolio.execute_buy(10, 50.0, 5.0, datetime(2020, 1, 1), order_id="ORDER_1")
     portfolio.execute_sell(5, 60.0, 2.0, datetime(2020, 1, 2), ["ORDER_1"])
 

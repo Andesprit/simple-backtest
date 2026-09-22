@@ -96,7 +96,8 @@ class TestFullBacktestWorkflow:
 
         # Verify backtest used correct date range
         strategy_result = results.get_strategy(strategy.get_name())
-        assert len(strategy_result.portfolio_values) <= (150 - 50 + 1)
+        assert strategy_result.portfolio_values.index[0] == sample_data.index[49]
+        assert len(strategy_result.returns) == (150 - 50 + 1)
 
     def test_backtest_with_percentage_commission(self, sample_data):
         """Test backtest with percentage commission."""
@@ -345,7 +346,8 @@ class TestBacktestEdgeCases:
         results = backtest.run([strategy])
 
         assert len(results) == 1
-        assert results.benchmark.metrics["beta"] == 0.0
+        # Entry commission creates one nonzero return even on flat prices.
+        assert results.benchmark.metrics["beta"] == pytest.approx(1.0)
 
     def test_backtest_strategy_state_isolation(self, sample_data):
         """Test that strategies don't share state."""
@@ -517,7 +519,7 @@ class TestBacktestEdgeCases:
                 trade_info["positions"].clear()
 
         strategy = MutatingStrategy()
-        config = BacktestConfig.default(parallel_execution=False)
+        config = BacktestConfig.default(parallel_execution=False, record_position_snapshots=True)
 
         result = Backtest(sample_data, config).run([strategy]).get_strategy("MutatingStrategy")
 

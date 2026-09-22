@@ -1,9 +1,12 @@
 """Results container classes for backtesting with helper methods."""
 
+from copy import deepcopy
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from simple_backtest.core.serialization import write_json
 from simple_backtest.metrics.objectives import metric_is_maximized
 
 
@@ -13,9 +16,9 @@ class StrategyResult:
     Attributes:
         name: Strategy name
         metrics: Dict of performance metrics
-        portfolio_values: Series of portfolio values over time
+        portfolio_values: Closing equity, including a pre-trading cash baseline
         trade_history: List of trade dictionaries
-        returns: Series of returns
+        returns: Trading-bar returns, including the first fill's costs
     """
 
     def __init__(self, name: str, data: Dict[str, Any]):
@@ -30,6 +33,17 @@ class StrategyResult:
         self.trade_history = data["trade_history"]
         self.returns = data["returns"]
         self.errors = data.get("errors", [])
+        self.order_outcomes = data.get("order_outcomes", [])
+        self._metadata = deepcopy(data.get("metadata", {}))
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        """Return a detached snapshot of this simulation's provenance."""
+        return deepcopy(self._metadata)
+
+    def export_json(self, path: str | Path) -> None:
+        """Export equity, trades, diagnostics, metrics, and provenance as portable JSON."""
+        write_json(path, {"schema_version": 1, "name": self.name, **self._to_dict()})
 
     def summary(self) -> str:
         """Get formatted metrics summary.
@@ -111,6 +125,8 @@ class StrategyResult:
             "trade_history": self.trade_history,
             "returns": self.returns,
             "errors": self.errors,
+            "order_outcomes": self.order_outcomes,
+            "metadata": self.metadata,
         }
 
     def __getitem__(self, key: str) -> Any:
@@ -171,6 +187,10 @@ class BacktestResults:
         """
         return list(self._strategies.keys())
 
+    def export_json(self, path: str | Path) -> None:
+        """Export all strategy results and the benchmark in one versioned document."""
+        write_json(path, {"schema_version": 1, "results": dict(self.items())})
+
     def compare(
         self, metrics: Optional[List[str]] = None, include_benchmark: bool = True
     ) -> pd.DataFrame:
@@ -223,8 +243,9 @@ class BacktestResults:
         should_maximize = metric_is_maximized(metric) if maximize is None else maximize
 
         selector = max if should_maximize else min
+        eligible = self._defined_metric_names(metric)
         best_name = selector(
-            self._strategies.keys(),
+            eligible,
             key=lambda name: self._strategies[name].metrics[metric],
         )
         return self._strategies[best_name]
@@ -245,11 +266,20 @@ class BacktestResults:
         should_maximize = metric_is_maximized(metric) if maximize is None else maximize
 
         selector = min if should_maximize else max
+        eligible = self._defined_metric_names(metric)
         worst_name = selector(
-            self._strategies.keys(),
+            eligible,
             key=lambda name: self._strategies[name].metrics[metric],
         )
         return self._strategies[worst_name]
+
+    def _defined_metric_names(self, metric: str) -> list[str]:
+        names = [
+            name for name, result in self._strategies.items() if pd.notna(result.metrics[metric])
+        ]
+        if not names:
+            raise ValueError(f"Metric '{metric}' is undefined for every strategy")
+        return names
 
     def _validate_metric(self, metric: str) -> None:
         """Require a comparable metric on every strategy."""

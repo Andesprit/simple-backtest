@@ -94,13 +94,11 @@ def calculate_sortino_ratio(
     # Calculate excess returns
     excess_returns = returns - period_rf_rate
 
-    # Calculate downside deviation (only negative returns)
-    downside_returns = excess_returns[excess_returns < 0]
-
-    if len(downside_returns) == 0 or pd.isna(downside_returns.std()) or downside_returns.std() == 0:
-        return 0.0
-
-    downside_std = downside_returns.std()
+    # RMS shortfall across ALL observations, relative to the target, not the
+    # dispersion of negative observations around their own mean.
+    downside_std = np.sqrt(excess_returns.clip(upper=0).pow(2).mean())
+    if pd.isna(downside_std) or downside_std == 0:
+        return float("nan")
 
     # Annualize
     return (excess_returns.mean() / downside_std) * np.sqrt(periods_per_year)

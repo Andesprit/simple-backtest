@@ -20,8 +20,8 @@ def calculate_metrics(
 
     Args:
         trade_history: List of trade dictionaries from Portfolio
-        portfolio_values: Series of portfolio values over time (indexed by date)
-        benchmark_values: Series of benchmark portfolio values over time
+        portfolio_values: Equity including the pre-trading initial-capital baseline
+        benchmark_values: Benchmark equity including the same pre-trading baseline
         initial_capital: Starting capital
         risk_free_rate: Annual risk-free rate (e.g., 0.02 for 2%)
 
