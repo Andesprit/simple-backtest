@@ -870,3 +870,19 @@ svg {
     animation: none;
   }
 }
+
+.andesprit-footer-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-block: 6px;
+  color: inherit;
+  font-size: 14px;
+  text-transform: none;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.andesprit-footer-link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}
