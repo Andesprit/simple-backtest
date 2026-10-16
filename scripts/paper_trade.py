@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from research_intraday import GRIDS  # noqa: E402
 
 KLINES = "https://data-api.binance.vision/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
-SECONDS = {"5m": 300, "10m": 600, "1h": 3600}
+SECONDS = {"5m": 300, "10m": 600, "1h": 3600, "4h": 14400, "1d": 86400}
 
 
 def fetch(symbol: str, interval: str, limit: int) -> pd.DataFrame:
@@ -97,11 +97,11 @@ def step(
 def main() -> None:
     """Loop forever, or once with --once."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--strategy", default="breakout", choices=sorted(GRIDS))
+    parser.add_argument("--strategy", default="ma_cross", choices=sorted(GRIDS))
     parser.add_argument(
-        "--params", default='{"enter": 200, "leave": 100}', help="JSON keyword arguments"
+        "--params", default='{"fast": 10, "slow": 200}', help="JSON keyword arguments"
     )
-    parser.add_argument("--interval", default="1h", choices=sorted(SECONDS))
+    parser.add_argument("--interval", default="4h", choices=sorted(SECONDS))
     parser.add_argument("--symbol", default="BTCUSDT")
     parser.add_argument("--fee", type=float, default=0.001)
     parser.add_argument("--cash", type=float, default=10_000.0)
