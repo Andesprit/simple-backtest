@@ -8,7 +8,6 @@ CSV at the given intervals over a shorter window split into two halves.
 import argparse
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from binance_klines import resample
 from strategy_zoo import ZOO, label, simulate, stats
