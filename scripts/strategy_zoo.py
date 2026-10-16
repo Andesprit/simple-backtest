@@ -5,7 +5,8 @@ Every strategy is a fixed preset chosen before looking at results. Each runs on
 Oct 2021 to Sep 2026, and on each half of that span. Earlier bars only warm
 up the indicators.
 Signals use bar closes and fill at the next open; every buy and sell pays the
-fee. Writes data/zoo.csv (one row per run) and data/zoo_curves.csv (weekly equity).
+fee. Writes data/zoo-SYMBOL.csv (one row per run) and data/zoo_curves-SYMBOL.csv
+(weekly equity).
 
 Families come from common technical-analysis references and from published
 BTC studies: moving-average and breakout trend rules, oscillator mean
@@ -20,7 +21,6 @@ import numpy as np
 import pandas as pd
 from binance_klines import resample
 
-BARS_PER_YEAR = {"1h": 24 * 365, "4h": 6 * 365, "1d": 365}
 START = pd.Timestamp("2021-10-01", tz="UTC")
 MIDDLE = pd.Timestamp("2024-04-01", tz="UTC")
 
@@ -576,14 +576,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, default=Path("data"))
     parser.add_argument("--fee", type=float, default=0.001)
+    parser.add_argument("--symbol", default="BTCUSDT")
     args = parser.parse_args()
 
-    hourly = pd.read_csv(args.data / "BTCUSDT-1h.csv", index_col="Date", parse_dates=["Date"])
+    hourly = pd.read_csv(
+        args.data / f"{args.symbol}-1h.csv", index_col="Date", parse_dates=["Date"]
+    )
     frames = {"1h": hourly, "4h": resample(hourly, "4h"), "1d": resample(hourly, "1D")}
     weeks = pd.date_range(START, hourly.index[-1], freq="W-SUN")
     rows, curves = [], {}
     for interval, d in frames.items():
-        per_year = BARS_PER_YEAR[interval]
+        # Count bars per year from the data, since forex skips weekends.
+
+        per_year = len(d) / ((d.index[-1] - d.index[0]).days / 365.25)
         windows = {
             "full": d.index >= START,
             "h1": (d.index >= START) & (d.index < MIDDLE),
@@ -639,10 +644,10 @@ def main() -> None:
         "Yes",
         "No",
     )
-    table.round(4).to_csv(args.data / "zoo.csv", index=False)
+    table.round(4).to_csv(args.data / f"zoo-{args.symbol}.csv", index=False)
     long = pd.DataFrame(curves, index=[str(w.date()) for w in weeks]).rename_axis("week")
     long = long.reset_index().melt(id_vars="week", var_name="id", value_name="equity")
-    long[["id", "week", "equity"]].to_csv(args.data / "zoo_curves.csv", index=False)
+    long[["id", "week", "equity"]].to_csv(args.data / f"zoo_curves-{args.symbol}.csv", index=False)
     print(f"{len(ZOO)} families, {sum(len(z[3]) for z in ZOO)} strategies, {len(rows)} runs")
 
 
