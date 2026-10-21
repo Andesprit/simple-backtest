@@ -1,5 +1,7 @@
 """Integration tests for the complete backtest workflow."""
 
+import warnings
+
 import pandas as pd
 import pytest
 
@@ -32,6 +34,56 @@ def sample_data():
         },
         index=dates,
     )
+
+
+@pytest.mark.parametrize("parallel", [False, True])
+def test_rejected_orders_warn_once_per_strategy_per_run(sample_data, parallel):
+    config = BacktestConfig(
+        initial_capital=1000, lookback_period=30, parallel_execution=parallel, n_jobs=2
+    )
+    backtest = Backtest(sample_data, config)
+    strategies = [BuyAndHoldStrategy(shares=100, name=name) for name in ("TooBig", "AlsoTooBig")]
+
+    for _ in range(2):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            results = backtest.run(strategies)
+
+        assert len(caught) == 2
+        for name, warning in zip(("TooBig", "AlsoTooBig"), caught):
+            result = results.get_strategy(name)
+            message = str(warning.message)
+            assert warning.category is UserWarning
+            assert name in message
+            assert "170 orders rejected" in message
+            assert "insufficient_cash" in message
+            assert "buy_budget" in message
+            assert "fewer shares" in message
+            assert "170 orders rejected" in result.summary()
+            assert len(result.order_outcomes) == 170
+            assert result.trade_history == []
+            assert result.errors == []
+
+
+@pytest.mark.parametrize("parallel", [False, True])
+def test_fully_filled_dca_and_ma_do_not_warn(sample_data, parallel):
+    config = BacktestConfig(
+        initial_capital=10000, lookback_period=30, parallel_execution=parallel, n_jobs=2
+    )
+    strategies = [
+        DCAStrategy(investment_amount=500, interval_days=30),
+        MovingAverageStrategy(short_window=10, long_window=30, shares=10),
+    ]
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        results = Backtest(sample_data, config).run(strategies)
+
+    assert caught == []
+    for name in results.list_strategies():
+        result = results.get_strategy(name)
+        assert result.trade_history
+        assert all(o["status"] != "rejected" for o in result.order_outcomes)
+        assert "orders rejected" not in result.summary()
 
 
 class TestFullBacktestWorkflow:

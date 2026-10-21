@@ -21,6 +21,17 @@ def sample_strategy_data():
             "total_trades": 10,
             "win_rate": 60.0,
             "profit_factor": 2.5,
+            "calmar_ratio": 0.8,
+            "max_drawdown_duration": 3,
+            "avg_win": 50.0,
+            "avg_loss": -20.0,
+            "expectancy": 22.0,
+            "final_value": 10700.0,
+            "peak_value": 10700.0,
+            "exposure_time": 50.0,
+            "alpha": 2.0,
+            "beta": 0.9,
+            "information_ratio": 0.5,
         },
         "portfolio_values": pd.Series(
             [10000, 10100, 10200, 10150, 10300, 10400, 10350, 10500, 10600, 10700], index=dates
@@ -69,6 +80,36 @@ def sample_results_dict(sample_strategy_data):
 
 class TestStrategyResult:
     """Tests for StrategyResult class."""
+
+    @pytest.mark.parametrize(
+        "reason,hint",
+        [
+            ("insufficient_cash", "buy_budget"),
+            ("insufficient_shares", "self.get_position()"),
+            ("zero_size", "positive size"),
+            ("zero_volume", "Volume"),
+        ],
+    )
+    def test_summary_explains_rejections(self, sample_strategy_data, reason, hint):
+        sample_strategy_data["order_outcomes"] = [
+            {"status": "rejected", "reason": reason},
+            {"status": "filled", "reason": None},
+            {"status": "partial", "reason": "volume_limit"},
+            {"status": "rejected", "reason": reason},
+            {"status": "rejected", "reason": "other"},
+        ]
+        summary = StrategyResult("Test", sample_strategy_data).summary()
+
+        assert "3 orders rejected" in summary
+        assert f"main reason: {reason} (2)" in summary
+        assert hint in summary
+        assert "Total Trades" in summary
+
+    def test_summary_without_rejections_is_unchanged(self, sample_strategy_data):
+        from simple_backtest.metrics.calculator import format_metrics
+
+        result = StrategyResult("Test", sample_strategy_data)
+        assert result.summary() == format_metrics(result.metrics)
 
     def test_initialization(self, sample_strategy_data):
         """Test StrategyResult initialization."""

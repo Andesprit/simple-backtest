@@ -1,5 +1,6 @@
 """Results container classes for backtesting with helper methods."""
 
+from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -46,13 +47,44 @@ class StrategyResult:
         write_json(path, {"schema_version": 1, "name": self.name, **self._to_dict()})
 
     def summary(self) -> str:
-        """Get formatted metrics summary.
+        """Get formatted metrics and an explanation of any rejected orders.
 
         :return: Pretty-formatted string of metrics
         """
         from simple_backtest.metrics.calculator import format_metrics
 
-        return format_metrics(self.metrics)
+        summary = format_metrics(self.metrics)
+        rejection_summary = self._rejection_summary()
+        if rejection_summary:
+            summary += f"\n\nOrder Outcomes:\n  {rejection_summary}"
+        return summary
+
+    def _rejection_summary(self) -> str | None:
+        """Explain rejections once, without treating normal outcomes as errors."""
+        reasons = Counter(
+            outcome.get("reason") or "unknown"
+            for outcome in self.order_outcomes
+            if outcome["status"] == "rejected"
+        )
+        if not reasons:
+            return None
+
+        reason, reason_count = reasons.most_common(1)[0]
+        hints = {
+            "insufficient_cash": (
+                "Request fewer shares or use self.buy_budget(self.get_cash()) "
+                "to size buys within available cash, including commission."
+            ),
+            "insufficient_shares": "Sell no more than your held shares (self.get_position()).",
+            "zero_size": "Use a positive size or budget when placing an order; use self.hold() to wait.",
+            "zero_volume": "Check Volume data and max_volume_participation; this bar permits no fill.",
+        }
+        hint = hints.get(reason, "Inspect result.order_outcomes for the rejected orders and reasons.")
+        count = sum(reasons.values())
+        return (
+            f"{count} order{'s' if count != 1 else ''} rejected; "
+            f"main reason: {reason} ({reason_count}). {hint}"
+        )
 
     def plot_equity_curve(self, show_drawdown: bool = True):
         """Plot equity curve for this strategy.

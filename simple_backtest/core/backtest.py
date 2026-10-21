@@ -1,5 +1,6 @@
 """Backtesting engine with parallelization support."""
 
+import warnings
 from copy import deepcopy
 from datetime import datetime
 from math import isfinite
@@ -328,7 +329,13 @@ class Backtest:
         for strategy, result in zip(strategies, strategy_results):
             results[strategy.get_name()] = result
 
-        return BacktestResults(results)
+        backtest_results = BacktestResults(results)
+        # Warn in the caller process so parallel runs have the same feedback and filters.
+        for name in backtest_results.list_strategies():
+            rejection_summary = backtest_results.get_strategy(name)._rejection_summary()
+            if rejection_summary:
+                warnings.warn(f"Strategy '{name}': {rejection_summary}", UserWarning, stacklevel=2)
+        return backtest_results
 
     def _run_single_strategy(
         self,
