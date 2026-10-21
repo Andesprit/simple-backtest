@@ -162,3 +162,57 @@ def test_missing_timestamp_remains_a_validation_error(prices):
     prices.index = pd.DatetimeIndex(dates)
     with pytest.raises(DataValidationError):
         validate_dataframe(prices)
+
+
+@pytest.mark.parametrize(
+    "column,value,rule",
+    [
+        ("High", 80.0, "High below Low"),
+        ("Open", 80.0, "Open below Low"),
+        ("Open", 120.0, "Open above High"),
+        ("Close", 80.0, "Close below Low"),
+        ("Close", 120.0, "Close above High"),
+    ],
+)
+def test_ohlc_error_names_rules_counts_and_first_dates(prices, column, value, rule):
+    prices.loc[prices.index[10:14], column] = value
+    original = prices.copy(deep=True)
+    with pytest.raises(DataValidationError) as caught:
+        validate_dataframe(prices)
+    message = str(caught.value)
+    assert "4 rows with invalid OHLC relationships" in message
+    assert f"{rule}: 4 rows" in message
+    assert all(f"2023-01-{day}" in message for day in (11, 12, 13))
+    assert "2023-01-14" not in message
+    assert "source" in message and "column-wise" in message
+    pd.testing.assert_frame_equal(prices, original)
+
+
+def test_adjusted_close_error_explains_missing_raw_prices(prices):
+    # This represents a user's earlier rename; provenance is no longer available.
+    prices["Close"] = prices["Close"] * 0.8
+    with pytest.raises(DataValidationError) as caught:
+        validate_dataframe(prices)
+    message = str(caught.value)
+    assert "Close below Low: 50 rows" in message
+    assert "If" in message and "unadjusted Open/High/Low" in message
+    assert "supply unadjusted Close" in message
+    assert "supply consistently adjusted OHLC" in message
+    assert "cannot recover" in message and "adjustment factor" in message
+
+
+def test_ohlc_warning_has_same_diagnostics_and_does_not_change_prices(prices):
+    prices.loc[prices.index[20], "Open"] = 80.0
+    with pytest.raises(DataValidationError) as caught:
+        validate_dataframe(prices)
+    with pytest.warns(UserWarning) as warned:
+        result = validate_dataframe(prices, strict=False)
+    assert len(warned) == 1
+    assert str(warned[0].message) == str(caught.value)
+    pd.testing.assert_frame_equal(result, prices)
+
+
+def test_both_close_series_use_raw_close_without_adjustment(prices):
+    prices["Adj Close"] = prices["Close"] * 0.8
+    normalized = validate_dataframe(prices)
+    pd.testing.assert_frame_equal(normalized, prices)

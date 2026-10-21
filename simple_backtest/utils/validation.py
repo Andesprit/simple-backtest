@@ -328,26 +328,44 @@ def validate_dataframe(
             )
 
     # Validate OHLC relationships
-    invalid_ohlc = (
-        (data["High"] < data["Low"])
-        | (data["Open"] < data["Low"])
-        | (data["Open"] > data["High"])
-        | (data["Close"] < data["Low"])
-        | (data["Close"] > data["High"])
+    broken_rules = pd.DataFrame(
+        {
+            "High below Low": data["High"] < data["Low"],
+            "Open below Low": data["Open"] < data["Low"],
+            "Open above High": data["Open"] > data["High"],
+            "Close below Low": data["Close"] < data["Low"],
+            "Close above High": data["Close"] > data["High"],
+        }
     )
+    invalid_ohlc = broken_rules.any(axis=1)
 
     if invalid_ohlc.any():
-        invalid_count = invalid_ohlc.sum()
+        details = [
+            f"DataFrame has {invalid_ohlc.sum()} rows with invalid OHLC relationships.",
+            "Broken rules (counts may overlap); first dates per rule (up to 3):",
+        ]
+        for rule, mask in broken_rules.items():
+            if mask.any():
+                first_dates = [str(date) for date in data.index[mask][:3]]
+                details.append(f"  {rule}: {mask.sum()} rows; dates: {first_dates}.")
+        if broken_rules[["Close below Low", "Close above High"]].any().any():
+            details.append(
+                "If Close came from 'Adj Close', it may be mixed with unadjusted Open/High/Low. "
+                "In that case, supply unadjusted Close, or supply consistently adjusted OHLC "
+                "from your data provider. Renaming alone cannot recover the missing raw Close "
+                "or adjustment factors."
+            )
+        details.append(
+            "Check these rows against your source data and correct the prices. "
+            "If this followed a column-wise fill, reload the original data and consider "
+            "omitting incomplete bars with df.dropna(subset=['Open', 'High', 'Low', 'Close']); "
+            "filling individual prices can place them outside that day's High/Low range."
+        )
+        message = "\n".join(details)
         if strict:
-            raise DataValidationError(
-                f"DataFrame has {invalid_count} rows with invalid OHLC relationships. "
-                f"First invalid row:\n{data[invalid_ohlc].head(1)}"
-            )
+            raise DataValidationError(message)
         else:
-            warnings.warn(
-                f"DataFrame has {invalid_count} rows with invalid OHLC relationships.",
-                UserWarning,
-            )
+            warnings.warn(message, UserWarning)
 
     price_columns = ["Open", "High", "Low", "Close"]
     nonpositive_prices = (data[price_columns] <= 0).any()
