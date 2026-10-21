@@ -466,6 +466,26 @@ trades, and diagnostics for each fold. Every test fold starts with fresh initial
 capital and empty positions; aggregate metrics summarize independent folds and
 do not represent a continuous portfolio.
 
+```python
+from simple_backtest import WalkForwardOptimizer
+
+report = WalkForwardOptimizer(train_size=0.5, n_splits=3, verbose=False).optimize_report(
+    data,
+    BacktestConfig.default(lookback_period=60),
+    MovingAverageStrategy,
+    {"short_window": [5, 10, 20], "long_window": [30, 60], "shares": [10]},
+    metric="total_return",
+)
+report.export_html("walk-forward.html", price_data=data)  # Returns the written path
+```
+
+The page needs no Python or network. It lists each fold's training and test
+rows, selected parameters and statistics over independent folds, with no best
+fold picked, then one section per fold with its own strategy and benchmark
+charts, fills, diagnostics and assumptions. Nothing is re-run. `price_data` is
+optional and adds trade charts. Plotly is embedded once (about 4.8 MB), so three
+folds make one file of about 4.85 MB instead of three single-run reports.
+
 See the executable [research guide](docs/REPRODUCIBLE_RESEARCH.md) for seeded
 experiments, detailed walk-forward reports, and JSON exports.
 

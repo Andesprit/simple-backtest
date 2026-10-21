@@ -74,6 +74,7 @@ first_fold = report.folds[0]
 assert first_fold.result.portfolio_values.iloc[0] == config.initial_capital
 print(first_fold.parameters, first_fold.result.trade_history[:1])
 report.export_json("walk-forward.json")
+report.export_html("walk-forward.html", price_data=data)  # Every fold in one offline page
 ```
 
 ## Seeds and recorded inputs
@@ -129,6 +130,16 @@ and drawdowns are percentages. Fold averages are unweighted. Do not concatenate
 the equity curves and interpret their reset balances as one investable account.
 The existing `optimize()` DataFrame API remains available; its detailed report
 is also stored in `optimizer.report`.
+
+`report.export_html(path, price_data=None)` writes one offline page from the
+same report, without re-running anything. Each fold keeps its own section with
+its training and test rows, selected parameters, strategy and benchmark equity,
+fills, diagnostics and assumptions. The summary shows the fold statistics above,
+never a best fold. The report does not record the search objective or base
+optimizer, so the page says so instead of guessing. Pass the price DataFrame
+given to the optimizer to add trade charts. The page embeds the Plotly runtime
+once (about 4.8 MB, the same fixed cost as a single-run report) and each fold
+adds only its own data.
 
 ## Export format
 
