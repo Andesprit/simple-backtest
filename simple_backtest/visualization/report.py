@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 from plotly.offline import get_plotlyjs
 
+from simple_backtest.core.results import _format_value
 from simple_backtest.utils.validation import _normalize_ohlcv_columns
 from simple_backtest.visualization.plotter import (
     _run_notes,
@@ -74,18 +75,7 @@ def build_report(results, price_data=None) -> str:
             price_data, {name: result._plot_dict() for name, result in strategies.items()}
         )
 
-    charts = []
-
-    def chart(figure) -> str:
-        chart_id = f"chart-{len(charts) + 1}"
-        charts.append(chart_id)
-        # Plotly JSON already escapes "<"; the replace keeps any "</script>" inert regardless.
-        payload = figure.to_json().replace("</", "<\\/")
-        return (
-            f'<div class="chart" id="{chart_id}"><p class="muted">Interactive chart: open this '
-            "file in a browser with JavaScript enabled. The tables hold the same answers.</p></div>"
-            f'<script type="application/json" id="{chart_id}-data">{payload}</script>'
-        )
+    chart = _Charts()
 
     sections = [_summary(results, strategies, price_data is not None)]
     sections.append(
@@ -104,7 +94,11 @@ def build_report(results, price_data=None) -> str:
             else '<p class="muted">Trade price chart not included: pass price_data, the '
             "DataFrame you gave to Backtest, to export_html.</p>"
         )
-        sections.append(_strategy_section(index, name, result, coverage.get(name, []), trade_chart))
+        sections.append(
+            _strategy_section(
+                f"strategy-{index}", name, result, coverage.get(name, []), trade_chart
+            )
+        )
     sections.append(_assumptions_section(runs))
 
     nav = ['<a href="#summary">Summary</a>', '<a href="#equity">Equity and drawdown</a>']
@@ -114,19 +108,47 @@ def build_report(results, price_data=None) -> str:
     ]
     nav.append('<a href="#assumptions">Assumptions</a>')
     count = len(strategies)
+    return _document(
+        "Backtest report",
+        f"{count} strateg{'y' if count == 1 else 'ies'}; "
+        f"made with simple-backtest {escape(__version__)}. Simulated on the supplied data with "
+        "the assumptions listed below: not a forecast or a recommendation. A result picked by a "
+        "parameter search is in-sample, so its numbers do not show robustness.",
+        nav,
+        sections,
+        "Every record (fills, rejected orders, errors, equity) is in results.export_json(path).",
+        chart,
+    )
+
+
+class _Charts:
+    """Give each figure a page-unique ID and an inert JSON payload for the one Plotly runtime."""
+
+    def __init__(self):
+        self.ids = []
+
+    def __call__(self, figure) -> str:
+        chart_id = f"chart-{len(self.ids) + 1}"
+        self.ids.append(chart_id)
+        # Plotly JSON already escapes "<"; the replace keeps any "</script>" inert regardless.
+        payload = figure.to_json().replace("</", "<\\/")
+        return (
+            f'<div class="chart" id="{chart_id}"><p class="muted">Interactive chart: open this '
+            "file in a browser with JavaScript enabled. The tables hold the same answers.</p></div>"
+            f'<script type="application/json" id="{chart_id}-data">{payload}</script>'
+        )
+
+
+def _document(title, intro, nav, sections, footer, charts) -> str:
+    """Wrap escaped sections in one page; embed Plotly once, only if a chart was added."""
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>Backtest report</title><style>{_STYLE}</style></head><body>"
-        "<header><h1>Backtest report</h1>"
-        f'<p class="muted">{count} strateg{"y" if count == 1 else "ies"}; '
-        f"made with simple-backtest {escape(__version__)}. Simulated on the supplied data with "
-        "the assumptions listed below: not a forecast or a recommendation. A result picked by a "
-        "parameter search is in-sample, so its numbers do not show robustness.</p></header>"
+        f"<title>{title}</title><style>{_STYLE}</style></head><body>"
+        f'<header><h1>{title}</h1><p class="muted">{intro}</p></header>'
         f"<nav>{''.join(nav)}</nav><main>{''.join(sections)}</main>"
-        '<footer><p class="muted">Every record (fills, rejected orders, errors, equity) is in '
-        "results.export_json(path).</p></footer>"
-        + (f"<script>{get_plotlyjs()}</script><script>{_PLOT}</script>" if charts else "")
+        f'<footer><p class="muted">{footer}</p></footer>'
+        + (f"<script>{get_plotlyjs()}</script><script>{_PLOT}</script>" if charts.ids else "")
         + "</body></html>"
     )
 
@@ -160,13 +182,19 @@ def _summary(results, strategies, has_prices: bool) -> str:
     return html + "</section>"
 
 
-def _strategy_section(index, name, result, coverage, trade_chart) -> str:
-    html = f'<section id="strategy-{index}"><h2>{escape(name)}</h2><table>'
+def _strategy_section(section_id, name, result, coverage, trade_chart) -> str:
+    html = f'<section id="{section_id}"><h2>{escape(name)}</h2><table>'
     html += "".join(
         f"<tr><th>{escape(label)}</th><td>{escape(value)}</td></tr>"
         for label, value in result._metric_rows()
     )
     html += "</table>"
+    return html + _run_details(name, result, coverage, trade_chart) + "</section>"
+
+
+def _run_details(name, result, coverage, trade_chart) -> str:
+    """Notes, trade chart, fills, rejections and errors of one run, bounded for display."""
+    html = ""
     notes = coverage + _run_notes(name, result._plot_dict())
     if notes:
         html += "<ul>" + "".join(f"<li>{escape(note)}</li>" for note in notes) + "</ul>"
@@ -192,7 +220,7 @@ def _strategy_section(index, name, result, coverage, trade_chart) -> str:
         html += _preview(
             "Strategy errors", result.errors, ["timestamp", "stage", "error_type", "message"]
         )
-    return html + "</section>"
+    return html
 
 
 def _preview(title, records, columns) -> str:
@@ -220,10 +248,10 @@ def _cell(value) -> str:
     return text
 
 
-def _assumptions_section(runs) -> str:
+def _assumptions_section(runs, section_id="assumptions", title="Assumptions") -> str:
     rows = {name: _assumptions(result) for name, result in runs.items()}
     html = (
-        '<section id="assumptions"><h2>Assumptions</h2><p class="muted">As recorded when each '
+        f'<section id="{section_id}"><h2>{escape(title)}</h2><p class="muted">As recorded when each '
         "run was simulated. A value that differs between runs is listed per run. "
         "“not recorded” means this result carries no such record.</p><table>"
     )
@@ -300,3 +328,193 @@ def _show(value) -> str:
 def _date(timestamp) -> str:
     timestamp = pd.Timestamp(timestamp)
     return str(timestamp.date()) if timestamp == timestamp.normalize() else str(timestamp)
+
+
+_FOLD_STATISTICS = (
+    ("fold_count", "Folds", ".0f", ""),
+    ("test_bars", "Test bars, all folds", ".0f", ""),
+    ("total_trades", "Trades, all folds", ".0f", ""),
+    ("rejected_orders", "Rejected orders, all folds", ".0f", ""),
+    ("mean_fold_return", "Mean fold return (unweighted)", ".2f", "%"),
+    ("median_fold_return", "Median fold return", ".2f", "%"),
+    ("worst_fold_return", "Worst fold return", ".2f", "%"),
+    ("maximum_fold_drawdown", "Largest single-fold max drawdown", ".2f", "%"),
+)
+
+
+def write_walk_forward_report(path, report, price_data=None) -> Path:
+    """Write one offline HTML file reviewing every independent walk-forward test fold.
+
+    :param path: Output file path
+    :param report: WalkForwardReport to review; it is read, never changed or re-run
+    :param price_data: Optional price DataFrame given to the optimizer, adding trade charts
+    :return: The written path
+    """
+    path = Path(path)
+    path.write_text(build_walk_forward_report(report, price_data), encoding="utf-8")
+    return path
+
+
+def build_walk_forward_report(report, price_data=None) -> str:
+    """Compose fold boundaries, selections and fold statistics, then one section per fold."""
+    from simple_backtest import __version__
+
+    chart = _Charts()
+    prices = _normalize_ohlcv_columns(price_data) if price_data is not None else None
+    records = [_fold_record(report.summary, fold.number) for fold in report.folds]
+    sections = [_walk_forward_summary(report, records, prices is not None)]
+    nav = ['<a href="#summary">Summary</a>']
+    for position, (fold, record) in enumerate(zip(report.folds, records), start=1):
+        # IDs come from the fold's position, never from user-controlled names or numbers.
+        section_id = f"fold-{position}"
+        label = f"Fold {fold.number}"
+        nav.append(f'<a href="#{section_id}">{escape(label)}</a>')
+        sections.append(_fold_section(section_id, label, fold, record, prices, chart))
+    count = len(report.folds)
+    return _document(
+        "Walk-forward report",
+        f"{count} independent test fold{'' if count == 1 else 's'}; made with simple-backtest "
+        f"{escape(__version__)}. Each fold's parameters were chosen on earlier training rows "
+        "only, then traded once on its test rows with fresh cash and no positions. Simulated "
+        "on the supplied data: not a forecast or a recommendation, and out-of-sample results "
+        "on one history do not prove robustness.",
+        nav,
+        sections,
+        "Every fold record (summary, parameters, equity, fills, rejected orders, errors) is in "
+        "report.export_json(path).",
+        chart,
+    )
+
+
+def _fold_record(summary, number) -> dict | None:
+    """The single summary row for this fold number, or None rather than a guessed row."""
+    if not isinstance(summary, pd.DataFrame) or "fold" not in summary:
+        return None
+    rows = [row for row in summary.to_dict("records") if row["fold"] == number]
+    return rows[0] if len(rows) == 1 else None
+
+
+def _span(record, start, end) -> str:
+    if record is None or start not in record or end not in record:
+        return "not recorded"
+    return f"{_date(record[start])} to {_date(record[end])}"
+
+
+def _metric(result, label) -> str:
+    return dict(result._metric_rows())[label]
+
+
+def _walk_forward_summary(report, records, has_prices: bool) -> str:
+    html = (
+        '<section id="summary"><h2>Summary</h2><p class="note"><strong>Each fold is a separate '
+        "test.</strong> Cash, positions, strategy state and random numbers reset at the start of "
+        "every fold. Parameters were chosen using only the training rows before each test. Test "
+        "results are not added, chained or compounded into one portfolio, and no fold is picked "
+        "as best: the fold statistics below summarize independent folds.</p>"
+    )
+    if not report.folds:
+        return html + "<p>No folds available: this report holds no test results.</p></section>"
+    html += (
+        "<table><tr><th>Fold</th><th>Training rows (chose the parameters)</th>"
+        "<th>Test rows (traded)</th><th>Selected parameters</th><th>Test return</th>"
+        "<th>Benchmark return</th><th>Max drawdown</th><th>Trades</th></tr>"
+    )
+    for fold, record in zip(report.folds, records):
+        cells = (
+            str(fold.number),
+            _span(record, "train_start", "train_end"),
+            _span(record, "test_start", "test_end") + _bars(fold.result),
+            _show(fold.parameters),
+            _metric(fold.result, "Total Return"),
+            _metric(fold.benchmark, "Total Return"),
+            _metric(fold.result, "Max Drawdown"),
+            _metric(fold.result, "Trades"),
+        )
+        html += "<tr>" + "".join(f"<td>{escape(_cell(cell))}</td>" for cell in cells) + "</tr>"
+    html += "</table>"
+    try:
+        statistics = report.aggregate_metrics
+    except (KeyError, TypeError, ValueError) as error:
+        html += f"<p>Fold statistics unavailable: {escape(_cell(repr(error)))}.</p>"
+    else:
+        html += "<h3>Statistics over independent folds</h3><table>" + "".join(
+            f"<tr><th>{label}</th>"
+            f"<td>{escape(_format_value(statistics.get(key), precision, suffix))}</td></tr>"
+            for key, label, precision, suffix in _FOLD_STATISTICS
+        )
+        html += "</table>"
+    html += (
+        "<p>Search objective and base optimizer: not recorded in this report, so this page "
+        "does not say which metric chose the parameters.</p>"
+    )
+    notes = [
+        f"Fold {fold.number} {run}: {note}"
+        for fold in report.folds
+        for run, notes in (
+            (fold.result.name, _run_notes(fold.result.name, fold.result._plot_dict())),
+            ("benchmark", fold.benchmark._diagnostic_notes(120)),
+        )
+        for note in notes
+    ]
+    if notes:
+        html += (
+            "<h3>What to check</h3><ul>"
+            + "".join(f"<li>{escape(note)}</li>" for note in notes)
+            + "</ul>"
+        )
+    if not has_prices:
+        html += (
+            '<p class="note">Trade price charts are not included because no price data was '
+            "given. Call export_html(path, price_data=data) with the DataFrame you gave to the "
+            "optimizer to add them.</p>"
+        )
+    return html + "</section>"
+
+
+def _bars(result) -> str:
+    returns = result.returns
+    return f" ({len(returns)} bars)" if returns is not None else ""
+
+
+def _fold_section(section_id, label, fold, record, prices, chart) -> str:
+    name, result, benchmark = fold.result.name, fold.result, fold.benchmark
+    html = (
+        f'<section id="{section_id}"><h2>{escape(label)}: {escape(name)}</h2>'
+        f"<p>Parameters {escape(_show(fold.parameters))} were chosen on training rows "
+        f"{escape(_span(record, 'train_start', 'train_end'))} and tested on rows "
+        f"{escape(_span(record, 'test_start', 'test_end'))}. This fold started with fresh cash "
+        "and no positions; its curves are not joined to other folds.</p>"
+        f"<table><tr><th>Metric</th><th>{escape(name)}</th><th>benchmark</th></tr>"
+    )
+    html += "".join(
+        f"<tr><th>{escape(metric)}</th><td>{escape(value)}</td>"
+        f"<td>{escape(_metric(benchmark, metric))}</td></tr>"
+        for metric, value in result._metric_rows()
+    )
+    html += "</table>" + chart(
+        plot_equity_curve(
+            {name: result._plot_dict(), "benchmark": benchmark._plot_dict()}, show_drawdown=True
+        )
+    )
+    coverage = []
+    if prices is None:
+        trade_chart = (
+            '<p class="muted">Trade price chart not included: pass price_data, the DataFrame you '
+            "gave to the optimizer, to export_html.</p>"
+        )
+    else:
+        try:
+            coverage = _trade_window(prices, result._plot_dict(), name)[1]
+            trade_chart = chart(plot_strategy_trades(prices, {name: result._plot_dict()})[name])
+        except ValueError as error:
+            trade_chart = (
+                f'<p class="note">Trade price chart not included: {escape(str(error))}</p>'
+            )
+    html += _run_details(name, result, coverage, trade_chart)
+    html += (
+        '<p class="muted">Input data span below is this test\'s evaluation slice, including its '
+        "warm-up rows; the training rows are listed above.</p>"
+    )
+    runs = {name: result, "benchmark": benchmark}
+    assumptions = _assumptions_section(runs, f"{section_id}-assumptions", f"{label} assumptions")
+    return html + assumptions + "</section>"

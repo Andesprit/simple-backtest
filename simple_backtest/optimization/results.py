@@ -52,6 +52,22 @@ class WalkForwardReport:
             ),
         }
 
+    def export_html(self, path: str | Path, price_data: pd.DataFrame | None = None) -> Path:
+        """Save one offline HTML page reviewing every fold; nothing is re-simulated.
+
+        It shows training/test rows and selected parameters per fold, fold statistics,
+        and each fold's own strategy/benchmark equity, fills, diagnostics and assumptions.
+        Pass the price DataFrame given to the optimizer to add trade charts. The page
+        embeds the Plotly runtime once (about 4.8 MB) and needs no network or Python.
+
+        :param path: Output file path
+        :param price_data: Optional prices given to the optimizer, adding trade charts
+        :return: The written path
+        """
+        from simple_backtest.visualization.report import write_walk_forward_report
+
+        return write_walk_forward_report(path, self, price_data)
+
     def export_json(self, path: str | Path) -> None:
         """Save fold summaries, parameters, equity, fills, diagnostics, and provenance."""
         write_json(
