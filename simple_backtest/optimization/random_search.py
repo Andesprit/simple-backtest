@@ -111,6 +111,7 @@ class RandomSearchOptimizer(Optimizer):
                 if self.repeats > 1:
                     seed = self._random.randrange(2**32)
                     trial_config = config.model_copy(update={"random_seed": seed})
+                    self._trial_context = {"trial": trial + 1, "simulation_seed": seed}
                 try:
                     strategy = strategy_class(**param_dict)
                 except (TypeError, ValueError) as error:

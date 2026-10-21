@@ -802,3 +802,99 @@ def plot_all(results) -> None:
     # Comparison table
     fig = create_comparison_table(results)
     fig.show()
+
+
+def plot_search_trials(
+    summary: pd.DataFrame,
+    param_names: list[str],
+    points: list[Dict[str, Any]],
+    selected_score: Any = None,
+    title: str = "Search",
+) -> go.Figure:
+    """Plot every observed objective value per tested combination of a search.
+
+    Each combination has its own position on a categorical axis (no interpolation
+    between untested settings). Combinations without plottable values stay visible
+    with their counts, and the selected individual trial is drawn as a star.
+    """
+    info = summary.attrs.get("trial_summary", {})
+    objective, unit = info.get("objective", "objective"), info.get("unit", "")
+    labels, ticks = [], []
+    for row in summary.to_dict("records"):
+        label = ", ".join(f"{name}={row[name]!r}" for name in param_names) or "strategy defaults"
+        labels.append(label)
+        counts = f"{row['defined']}/{row['attempted']} defined"
+        extra = [f"{row[s]} {s}" for s in ("undefined", "failed") if row[s]]
+        ticks.append(
+            "<br>".join(
+                [
+                    *(escape(line, quote=False) for line in wrap(label, 30)),
+                    ", ".join([counts, *extra]),
+                ]
+            )
+        )
+    finite = [p for p in points if np.isfinite(p["objective"])]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Box(
+            x=[p["combination"] for p in finite],
+            y=[p["objective"] for p in finite],
+            boxpoints="all",
+            jitter=0.3,
+            pointpos=0,
+            name="observed trials",
+            text=[
+                escape(labels[p["combination"]], quote=False)
+                + (f"<br>trial {p['trial']}, seed {p['seed']}" if p["trial"] is not None else "")
+                for p in finite
+            ],
+            hovertemplate=f"%{{text}}<br>{objective}=%{{y:.6g}}{unit}<extra></extra>",
+        )
+    )
+    selected = summary.index[summary["contains_selected"]].tolist() if len(summary) else []
+    annotations = []
+    if selected and selected_score is not None and np.isfinite(selected_score):
+        fig.add_trace(
+            go.Scatter(
+                x=selected,
+                y=[selected_score],
+                mode="markers",
+                marker=dict(symbol="star", size=16, color="gold", line=dict(width=1)),
+                name="selected trial (one observation)",
+                hovertemplate=f"selected trial<br>{objective}=%{{y:.6g}}{unit}<extra></extra>",
+            )
+        )
+    for position, row in enumerate(summary.to_dict("records")):
+        unplotted = sum(
+            1 for p in points if p["combination"] == position and not np.isfinite(p["objective"])
+        )
+        if row["defined"] == 0:
+            text = "no defined value<br>" + escape(row["note"].split(";")[0])
+        elif unplotted:
+            text = f"{unplotted} unbounded value(s) not plotted"
+            if position in selected and not np.isfinite(selected_score):
+                text += f"<br>selected trial: {objective}={selected_score}"
+        else:
+            continue
+        annotations.append(
+            dict(x=position, y=0.5, xref="x", yref="paper", text=text, showarrow=False)
+        )
+    direction = info.get("direction", "")
+    fig.update_layout(
+        title=(
+            f"{escape(title)}: observed {objective} per tested combination<br>"
+            f"<sup>In-sample; {direction}. Each point is one evaluation; boxes show observed "
+            "spread, not robustness. The star is the single selected trial.</sup>"
+        ),
+        xaxis=dict(
+            tickmode="array",
+            tickvals=list(range(len(labels))),
+            ticktext=ticks,
+            range=[-0.5, max(len(labels), 1) - 0.5],
+            title="tested combination",
+        ),
+        yaxis_title=f"{objective} ({unit})" if unit else objective,
+        annotations=annotations,
+        template="plotly_white",
+    )
+    return fig
