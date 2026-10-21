@@ -51,6 +51,10 @@ ranked = search.optimize(
 assert search.summary["unique_candidates"] == 3
 assert search.summary["attempted_evaluations"] == 9
 print(ranked[["probability", "trial", "simulation_seed", "total_return"]])
+print(search)  # Objective, selected trial and seed, counts
+best = search.best_result  # The selected trial's own run, not a re-simulation
+assert best.metadata["random_seed"] == ranked.loc[0, "simulation_seed"]
+print(best, search.best_parameters)
 search.export_json(ranked, "search.json")
 
 walk_forward = WalkForwardOptimizer(train_size=0.5, n_splits=3, verbose=False)
@@ -74,7 +78,14 @@ not seed Python's global `random`, global NumPy state, or external estimators;
 configure those explicitly. Strategies sharing a seed start with the same RNG
 sequence. Random search's `random_state` controls candidate sampling and trial
 seeds; `repeats > 1` replaces the configured simulation seed for each trial.
-Each trial is returned separately, not averaged before ranking.
+Each trial is returned separately, not averaged before ranking. `search.best_result` is the
+one in-sample trial that ranked first, kept from the search itself, so its
+fills and returns match that row's `simulation_seed`; it is not an average or a
+robustness estimate. Replay it with
+`config.model_copy(update={"random_seed": seed})` and
+`RandomRebalance(**search.best_parameters)`. When `optimize` returns an empty
+DataFrame, `print(search)` explains why (undefined objective or failed
+candidates) and suggests a retry such as `metric="total_return"`.
 
 Result metadata includes copied configuration, strategy class and constructor
 parameters, package/Python/NumPy/pandas versions, seed, input-data fingerprint,

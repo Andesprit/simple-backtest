@@ -331,31 +331,47 @@ none of them, `plot_trades` raises a `ValueError`.
 
 ### Parameter Optimization
 
-Find optimal strategy parameters using built-in optimizers:
+Find strategy parameters with a built-in optimizer, then inspect the run that won:
 
 ```python
-from simple_backtest import GridSearchOptimizer, BacktestConfig
+import numpy as np
+import pandas as pd
+from simple_backtest import BacktestConfig, GridSearchOptimizer, MovingAverageStrategy
 
-# Define parameter space
-param_space = {
-    'short_window': [5, 10, 15, 20],
-    'long_window': [30, 40, 50, 60],
-    'shares': [10]
-}
+rng = np.random.default_rng(42)
+close = 100 * np.exp(np.cumsum(rng.normal(0.0005, 0.01, 250)))
+data = pd.DataFrame(
+    {"Open": close, "High": close * 1.01, "Low": close * 0.99, "Close": close},
+    index=pd.date_range("2024-01-01", periods=250),
+)
 
-# Run optimization
-optimizer = GridSearchOptimizer(verbose=True)
+optimizer = GridSearchOptimizer(verbose=False)
 results = optimizer.optimize(
     data=data,
     config=BacktestConfig.default(lookback_period=60),
     strategy_class=MovingAverageStrategy,
-    param_space=param_space,
-    metric='sharpe_ratio'
+    param_space={"short_window": [5, 10, 20], "long_window": [30, 60], "shares": [10]},
+    metric="sharpe_ratio",
 )
+print(results.head(5))         # Ranked candidates, best first
 
-# View top results
-print(results.head(5))
+print(optimizer)               # Objective, winner, score, and evaluated/failed counts
+best = optimizer.best_result   # The winning run itself, not a new simulation
+print(best)                    # Also best.plot_trades(data), best.trade_history
+optimizer.best_parameters      # {'short_window': ..., 'long_window': ..., 'shares': 10}
 ```
+
+`best_parameters` keeps the exact values from `param_space` (integers stay
+integers), so `MovingAverageStrategy(**optimizer.best_parameters)` is ready for
+the next experiment. Copying a row of `results` instead adds metric columns and
+turns integers into floats.
+
+If no candidate has a defined objective (for example `sortino_ratio` on flat
+prices with `risk_free_rate=0`), `optimize` returns an empty DataFrame and warns
+once with the counts; retry with `metric="total_return"`. `print(optimizer)`
+gives the same explanation, and `best_result` raises a `ValueError` instead of
+returning an old winner. A misspelled objective stops after one evaluation and
+suggests the closest metric name. Failed candidates stay in `optimizer.failures`.
 
 **Available Optimizers:**
 - `GridSearchOptimizer` - Exhaustive search (best for small spaces)
@@ -372,10 +388,12 @@ Use an explicit `random_state` for reproducible candidate selection. Set
 `RandomSearchOptimizer(repeats=3, random_state=42)` runs three independently
 seeded trials per candidate and includes `trial` and `simulation_seed` columns.
 Repeated trials are ranked individually, so inspect their distribution before
-choosing parameters. `optimizer.summary` reports attempted evaluations, unique
+choosing parameters: with repeats, `best_result` is the single best in-sample
+trial, and `print(optimizer)` names its trial and seed. `optimizer.summary` reports attempted evaluations, unique
 candidates, failures, and excluded undefined objectives.
 
 `WalkForwardOptimizer.optimize()` still returns a chronological DataFrame.
+It has no single winner: `best_result` points you to `optimizer.report`.
 Use `optimize_report()` for selected parameters, strategy and benchmark equity,
 trades, and diagnostics for each fold. Every test fold starts with fresh initial
 capital and empty positions; aggregate metrics summarize independent folds and
