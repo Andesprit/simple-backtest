@@ -71,6 +71,8 @@ def validate_dataframe(
 ) -> None:
     """Validate DataFrame structure for backtesting with actionable error messages.
 
+    OHLCV names are normalized case-insensitively in place; Backtest passes its
+    internal copy. Ambiguous aliases (for example Close and close) are rejected.
     The engine accepts one OHLC(V) series at a time. Its accounting model is
     long-only and cash-funded; asset-specific mechanics are not inferred here.
 
@@ -142,6 +144,26 @@ def validate_dataframe(
                 f"  # Then flatten appropriately based on your data structure"
             )
 
+    # Reject duplicates before normalization so no price series is silently selected.
+    if data.columns.duplicated().any():
+        duplicates = data.columns[data.columns.duplicated()].tolist()
+        raise DataValidationError(f"DataFrame has duplicate column names: {duplicates}")
+
+    column_mapping = {}
+    for canonical in ("Open", "High", "Low", "Close", "Volume"):
+        matches = [
+            col for col in data.columns
+            if isinstance(col, str) and col.casefold() == canonical.casefold()
+        ]
+        if len(matches) > 1:
+            raise DataValidationError(
+                f"Ambiguous columns for '{canonical}': {matches}. "
+                "Remove or rename the extra columns so only one matches this OHLCV name."
+            )
+        if matches:
+            column_mapping[matches[0]] = canonical
+    data.rename(columns=column_mapping, inplace=True)
+
     # Check required columns
     required_columns = ["Open", "High", "Low", "Close"]
     if require_volume:
@@ -168,11 +190,6 @@ def validate_dataframe(
             f"→ Fix option 2: Rename all columns at once:\n"
             f"  df.columns = {required_columns}"
         )
-
-    # Check for duplicate columns
-    if data.columns.duplicated().any():
-        duplicates = data.columns[data.columns.duplicated()].tolist()
-        raise DataValidationError(f"DataFrame has duplicate column names: {duplicates}")
 
     # Validate data types
     cols_to_validate = ["Open", "High", "Low", "Close"]

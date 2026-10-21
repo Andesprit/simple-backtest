@@ -50,6 +50,23 @@ class TestValidateDataframe:
         # Should not raise
         validate_dataframe(valid_dataframe)
 
+    @pytest.mark.parametrize("case", [str.lower, str.upper, str.swapcase])
+    def test_ohlcv_column_case_is_normalized(self, valid_dataframe, case):
+        df = valid_dataframe.rename(columns=case)
+        df["Custom Feature"] = 7
+        validate_dataframe(df, require_volume=True)
+        pd.testing.assert_frame_equal(df[valid_dataframe.columns], valid_dataframe)
+        assert df["Custom Feature"].eq(7).all()
+
+    @pytest.mark.parametrize("alias", ["Close", "CLOSE"])
+    def test_ambiguous_column_case_is_rejected(self, valid_dataframe, alias):
+        df = valid_dataframe.rename(columns={"Close": alias}).assign(close=999.0)
+        with pytest.raises(DataValidationError, match="[Aa]mbiguous") as caught:
+            validate_dataframe(df)
+        assert alias in str(caught.value)
+        assert "close" in str(caught.value)
+        assert "rename" in str(caught.value).lower() or "remove" in str(caught.value).lower()
+
     def test_empty_dataframe(self):
         """Test that empty dataframe raises error."""
         df = pd.DataFrame()

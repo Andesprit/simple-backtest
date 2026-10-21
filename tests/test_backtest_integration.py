@@ -36,6 +36,29 @@ def sample_data():
     )
 
 
+@pytest.mark.parametrize("execution_price", ["open", "close", "typical"])
+def test_lowercase_data_matches_canonical_without_mutating_input(sample_data, execution_price):
+    config = BacktestConfig(
+        lookback_period=30, parallel_execution=False, execution_price=execution_price,
+        max_volume_participation=0.1,
+    )
+    lowercase = sample_data.rename(columns=str.lower)
+    original = lowercase.copy(deep=True)
+    canonical = Backtest(sample_data, config).run([BuyAndHoldStrategy(shares=1)])
+    normalized = Backtest(lowercase, config).run([BuyAndHoldStrategy(shares=1)])
+    expected = canonical.get_strategy("BuyAndHold")
+    actual = normalized.get_strategy("BuyAndHold")
+    pd.testing.assert_frame_equal(lowercase, original)
+    assert actual.metrics == expected.metrics
+    # Separate runs generate distinct order IDs; compare the financial records.
+    for field in ("trade_history", "order_outcomes"):
+        pd.testing.assert_frame_equal(
+            pd.DataFrame(getattr(actual, field)).drop(columns="order_id"),
+            pd.DataFrame(getattr(expected, field)).drop(columns="order_id"),
+        )
+    pd.testing.assert_series_equal(actual.portfolio_values, expected.portfolio_values)
+
+
 @pytest.mark.parametrize("parallel", [False, True])
 def test_rejected_orders_warn_once_per_strategy_per_run(sample_data, parallel):
     config = BacktestConfig(
