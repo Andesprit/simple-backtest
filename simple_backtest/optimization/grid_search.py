@@ -103,6 +103,7 @@ class GridSearchOptimizer(Optimizer):
                     logger.warning(f"Invalid history for params {param_dict}: {error}")
                 continue
             results.append({**param_dict, **metrics})
+            self._consider(param_dict, metrics, metric)
 
         return self._finish_search(
             results,

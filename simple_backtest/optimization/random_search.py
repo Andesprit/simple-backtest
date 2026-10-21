@@ -130,6 +130,7 @@ class RandomSearchOptimizer(Optimizer):
                 if self.repeats > 1:
                     row.update(trial=trial + 1, simulation_seed=seed)
                 results.append(row)
+                self._consider(param_dict, metrics, metric)
 
         return self._finish_search(
             results,

@@ -10,7 +10,8 @@ import pandas as pd
 from simple_backtest.config.settings import BacktestConfig
 from simple_backtest.core.backtest import Backtest
 from simple_backtest.core.serialization import json_value, write_json
-from simple_backtest.metrics.objectives import rank_results
+from simple_backtest.core.results import StrategyResult, _metric_hint
+from simple_backtest.metrics.objectives import metric_is_maximized, rank_results
 from simple_backtest.strategy.base import Strategy
 
 
@@ -35,11 +36,14 @@ class Optimizer(ABC):
         self._name = name or self.__class__.__name__
         self.failures: List[Dict[str, Any]] = []
         self.summary: Dict[str, Any] = {}
+        self._best: tuple[Any, Dict[str, Any], StrategyResult | None] | None = None
+        self._last_result: StrategyResult | None = None
 
     def _prepare_search(self, param_space: Dict[str, List[Any]]) -> Dict[str, List[Any]]:
         """Validate finite parameter lists and remove duplicate values in insertion order."""
         self.failures = []
         self.summary = {"attempted_evaluations": 0, "unique_candidates": 0}
+        self._best = None
         cleaned = {}
         for name, values in param_space.items():
             if not isinstance(values, (list, tuple, range)) or not values:
@@ -94,6 +98,19 @@ class Optimizer(ABC):
             }
         )
         return ranked
+
+    def _consider(self, parameters: Dict[str, Any], metrics: Dict[str, Any], metric: str) -> None:
+        """Keep only the best evaluated result so far, matching rank_results' stable order."""
+        result, self._last_result = self._last_result, None
+        if metric not in metrics:
+            raise ValueError(f"Metric '{metric}' not found. {_metric_hint(metric, list(metrics))}")
+        score = metrics[metric]
+        if pd.isna(score):
+            return
+        if self._best is None or (
+            score > self._best[0] if metric_is_maximized(metric) else score < self._best[0]
+        ):
+            self._best = (score, parameters.copy(), result)
 
     def _record_failure(self, parameters: Dict[str, Any], error: Exception) -> None:
         """Record an expected invalid parameter combination."""
@@ -153,7 +170,22 @@ class Optimizer(ABC):
         bt._warn_rejected_orders = False
         results = bt.run([strategy])
         strategy_result = results.get_strategy(strategy.get_name())
+        self._last_result = strategy_result
         return strategy_result.metrics
+
+    @property
+    def best_parameters(self) -> Dict[str, Any]:
+        """Original parameter objects of the last search's top-ranked candidate."""
+        if self._best is None:
+            raise ValueError("The last search selected no candidate; see optimizer.summary")
+        return self._best[1].copy()
+
+    @property
+    def best_result(self) -> StrategyResult:
+        """The evaluated StrategyResult of the last search's top-ranked candidate."""
+        if self._best is None or self._best[2] is None:
+            raise ValueError("The last search kept no selected result; see optimizer.summary")
+        return self._best[2]
 
     def __repr__(self) -> str:
         """String representation."""
