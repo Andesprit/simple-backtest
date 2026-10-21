@@ -185,6 +185,13 @@ class WalkForwardOptimizer(Optimizer):
         assert self.report is not None
         return self.report
 
+    def _no_winner_reason(self) -> str:
+        """Walk-forward selects per fold; there is no single full-history winner."""
+        return (
+            "Walk-forward selects parameters separately in each fold; inspect "
+            "optimizer.report.folds[i].parameters and .result (out-of-sample)."
+        )
+
     def _fold_sizes(self, test_rows: int) -> list[int]:
         """Split all test rows across folds, assigning remainder to later folds."""
         base_size, remainder = divmod(test_rows, self.n_splits)

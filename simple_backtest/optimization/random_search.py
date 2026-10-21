@@ -85,7 +85,7 @@ class RandomSearchOptimizer(Optimizer):
         :return: DataFrame of results sorted by metric
         """
         results = []
-        param_space = self._prepare_search(param_space)
+        param_space = self._prepare_search(param_space, metric)
         if self.repeats > 1 and {"trial", "simulation_seed"}.intersection(param_space):
             raise ValueError(
                 "trial and simulation_seed are reserved columns for repeated evaluations"
@@ -117,6 +117,7 @@ class RandomSearchOptimizer(Optimizer):
                     self._record_failure(param_dict, error)
                     continue
                 try:
+                    self._last_result = None
                     metrics = self._run_backtest(
                         data,
                         trial_config,
@@ -130,7 +131,12 @@ class RandomSearchOptimizer(Optimizer):
                 if self.repeats > 1:
                     row.update(trial=trial + 1, simulation_seed=seed)
                 results.append(row)
-                self._consider(param_dict, metrics, metric)
+                if self.repeats > 1:
+                    self._consider(
+                        param_dict, metrics, metric, trial=trial + 1, simulation_seed=seed
+                    )
+                else:
+                    self._consider(param_dict, metrics, metric)
 
         return self._finish_search(
             results,
