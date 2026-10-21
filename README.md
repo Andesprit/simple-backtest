@@ -244,13 +244,25 @@ config = BacktestConfig.low_commission(initial_capital=10000)
 
 ### Comparing Multiple Strategies
 
+Print the result to see returns, risk and trading activity together. This example
+uses reproducible synthetic prices; replace `data` with your own OHLC DataFrame.
+
 ```python
+import numpy as np
+import pandas as pd
 from simple_backtest import (
     Backtest,
     BacktestConfig,
     MovingAverageStrategy,
     BuyAndHoldStrategy,
     DCAStrategy
+)
+
+rng = np.random.default_rng(0)
+close = 100 * np.exp(np.cumsum(rng.normal(0.0005, 0.01, 300)))
+data = pd.DataFrame(
+    {"Open": close, "High": close * 1.01, "Low": close * 0.99, "Close": close},
+    index=pd.date_range("2023-01-01", periods=300),
 )
 
 # Create strategies
@@ -261,19 +273,36 @@ strategies = [
 ]
 
 # Run backtest
-config = BacktestConfig.default(initial_capital=10000)
+config = BacktestConfig.default(initial_capital=10000, parallel_execution=False)
 backtest = Backtest(data, config)
 results = backtest.run(strategies)
 
-# Compare strategies
-comparison = results.compare()
-print(comparison)
+print(results)
+```
 
-# Get best strategy
+```text
+Strategy    Return    CAGR  Max Drawdown  Sharpe  Trades
+--------------------------------------------------------
+benchmark    7.53%  10.32%        14.38%    0.49       1
+BuyAndHold   3.65%   4.97%         7.76%    0.33       1
+MA_10_30    -0.77%  -1.04%         2.46%   -1.70      12
+DCA_30d     -2.89%  -3.89%         5.35%   -1.00       9
+
+Best total return: BuyAndHold (3.65%). It trailed benchmark by 3.88 percentage points.
+```
+
+"Best total return" ranks the strategies by return, excluding the benchmark; it
+does not rank their risk. The notebook display renders the same table, verdict
+and any rejected-order explanations. Printing an individual strategy result
+also shows its final value and win statistics; win rate and profit factor are
+`n/a` when no trades have closed.
+
+For a numeric DataFrame, a different ranking metric, or an equity chart:
+
+```python
+comparison = results.compare()  # Original numeric metrics, without display formatting
 best = results.best_strategy('sharpe_ratio')
 print(f"Best: {best.name} (Sharpe: {best.metrics['sharpe_ratio']:.2f})")
-
-# Visualize
 results.plot_comparison().show()
 ```
 

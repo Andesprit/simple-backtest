@@ -3,6 +3,7 @@
 from collections import Counter
 from copy import deepcopy
 from difflib import get_close_matches
+from html import escape
 from pathlib import Path
 from textwrap import fill, wrap
 from typing import Any, Dict, List, Optional
@@ -17,6 +18,10 @@ def _metric_hint(metric: str, available: list[str]) -> str:
     matches = get_close_matches(metric, available, n=1) if isinstance(metric, str) else []
     suggestion = f" Did you mean '{matches[0]}'?" if matches else ""
     return f"Available metrics: {available}.{suggestion}"
+
+
+def _format_value(value: Any, precision: str = ".2f", suffix: str = "", prefix: str = "") -> str:
+    return f"{prefix}{value:{precision}}{suffix}" if pd.notna(value) else "n/a"
 
 
 class StrategyResult:
@@ -190,6 +195,43 @@ class StrategyResult:
             f"sharpe={self.metrics.get('sharpe_ratio', 0):.2f}, "
             f"total_return={self.metrics.get('total_return', 0):.2f}%)"
         )
+
+    def __str__(self) -> str:
+        """Show the result's key metrics and diagnostics with explicit units."""
+        lines = [fill(self.name, width=120)]
+        closed_trades = any(trade.get("signal") == "sell" for trade in self.trade_history)
+        for metric, label, precision, suffix, prefix in (
+            ("total_return", "Total Return", ".2f", "%", ""),
+            ("cagr", "CAGR", ".2f", "%", ""),
+            ("max_drawdown", "Max Drawdown", ".2f", "%", ""),
+            ("sharpe_ratio", "Sharpe", ".2f", "", ""),
+            ("total_trades", "Trades", ".0f", "", ""),
+            ("final_value", "Final Value", ",.2f", "", "$"),
+            ("win_rate", "Win Rate", ".2f", "%", ""),
+            ("profit_factor", "Profit Factor", ".2f", "", ""),
+        ):
+            value = self.metrics.get(metric)
+            formatted = _format_value(value, precision, suffix, prefix)
+            if metric in ("win_rate", "profit_factor") and not closed_trades:
+                formatted = "n/a (no closed trades)"
+            lines.append(f"  {label}: {formatted}")
+        lines.extend(fill(note, width=120) for note in self._diagnostic_notes())
+        return "\n".join(lines)
+
+    def _diagnostic_notes(self) -> list[str]:
+        notes = []
+        rejected = self._rejection_summary()
+        if rejected:
+            notes.append(rejected)
+        if self.errors:
+            count = len(self.errors)
+            first = self.errors[0]
+            notes.append(
+                f"{count} strategy error{'s' if count != 1 else ''} recorded; "
+                f"first: {first.get('error_type', 'error')}: {first.get('message', '')}. "
+                "Inspect result.errors for details."
+            )
+        return notes
 
 
 class BacktestResults:
@@ -420,36 +462,55 @@ class BacktestResults:
 
     def __repr__(self) -> str:
         """String representation."""
-        return f"BacktestResults({len(self._strategies)} strategies)"
+        return (
+            f"BacktestResults({len(self._strategies)} strategies; "
+            "print(results) for the comparison)"
+        )
 
     def __str__(self) -> str:
         """Show returns, risk and trading activity without pandas display truncation."""
-        columns = [
-            ("total_return", "Return", 10, ".2f", "%"),
-            ("cagr", "CAGR", 10, ".2f", "%"),
-            ("max_drawdown", "Max Drawdown", 12, ".2f", "%"),
-            ("sharpe_ratio", "Sharpe", 8, ".2f", ""),
-            ("total_trades", "Trades", 6, ".0f", ""),
-        ]
-        comparison = self.compare(metrics=[column[0] for column in columns])
+        comparison = self._comparison_table()
         if comparison.empty:
             return "No strategies available."
 
         name_width = min(32, max(len("Strategy"), *(len(str(n)) for n in comparison.index)))
+        widths = [max(len(label), comparison[label].map(len).max()) for label in comparison]
         header = f"{'Strategy':<{name_width}}  " + "  ".join(
-            f"{label:>{width}}" for _, label, width, _, _ in columns
+            f"{label:>{width}}" for label, width in zip(comparison.columns, widths)
         )
         lines = [header, "-" * len(header)]
         for name, metrics in comparison.iterrows():
             name_lines = wrap(str(name), width=name_width) or [""]
-            values = []
-            for metric, _, width, precision, unit in columns:
-                value = metrics[metric]
-                formatted = f"{value:{precision}}{unit}" if pd.notna(value) else "n/a"
-                values.append(f"{formatted:>{width}}")
+            values = [f"{value:>{width}}" for value, width in zip(metrics, widths)]
             lines.append(f"{name_lines[0]:<{name_width}}  " + "  ".join(values))
             lines.extend(name_lines[1:])
+        lines.extend(["", fill(self._return_verdict(), width=120)])
+        notes = self._diagnostic_notes()
+        if notes:
+            lines.append("")
+            lines.extend(fill(note, width=120) for note in notes)
+        return "\n".join(lines)
 
+    def _comparison_table(self) -> pd.DataFrame:
+        """Build the same display values for terminal and notebook reports."""
+        columns = {
+            "total_return": ("Return", "%"),
+            "cagr": ("CAGR", "%"),
+            "max_drawdown": ("Max Drawdown", "%"),
+            "sharpe_ratio": ("Sharpe", ""),
+            "total_trades": ("Trades", ""),
+        }
+        table = self.compare(metrics=list(columns))
+        if not table.empty:
+            for metric, (_, suffix) in columns.items():
+                precision = ".0f" if metric == "total_trades" else ".2f"
+                table[metric] = table[metric].map(
+                    lambda value: _format_value(value, precision, suffix)
+                )
+        table.index.name = "Strategy"
+        return table.rename(columns={metric: label for metric, (label, _) in columns.items()})
+
+    def _return_verdict(self) -> str:
         eligible = [
             result
             for result in self._strategies.values()
@@ -473,8 +534,25 @@ class BacktestResults:
                 verdict += " No benchmark available for comparison."
         else:
             verdict = "No strategy has a defined total return."
-        lines.extend(["", fill(verdict, width=120)])
-        return "\n".join(lines)
+        return verdict
+
+    def _diagnostic_notes(self) -> list[str]:
+        results = list(self._strategies.values())
+        if self.benchmark is not None:
+            results.append(self.benchmark)
+        return [f"{result.name}: {note}" for result in results for note in result._diagnostic_notes()]
+
+    def _repr_html_(self) -> str:
+        """Render the same comparison and diagnostics in a notebook cell."""
+        table = self._comparison_table()
+        if table.empty:
+            return "<p>No strategies available.</p>"
+        report = table.to_html(escape=True, border=0, max_rows=None, max_cols=None)
+        report += f"<p>{escape(self._return_verdict())}</p>"
+        notes = self._diagnostic_notes()
+        if notes:
+            report += "<ul>" + "".join(f"<li>{escape(note)}</li>" for note in notes) + "</ul>"
+        return report
 
     def items(self):
         """Iterate over (name, result_dict) pairs for backward compatibility.

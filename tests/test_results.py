@@ -1,5 +1,7 @@
 """Tests for results module."""
 
+from html import escape, unescape
+
 import pandas as pd
 import pytest
 
@@ -80,6 +82,60 @@ def sample_results_dict(sample_strategy_data):
 
 class TestStrategyResult:
     """Tests for StrategyResult class."""
+
+    def test_print_key_metrics_and_units(self, sample_strategy_data):
+        report = str(StrategyResult("Example", sample_strategy_data))
+
+        for text in (
+            "Example", "Total Return: 25.50%", "CAGR: 10.20%",
+            "Max Drawdown: 12.30%", "Sharpe: 1.50", "Trades: 10",
+            "Final Value: $10,700.00", "Win Rate: 60.00%", "Profit Factor: 2.50",
+        ):
+            assert text in report
+
+    @pytest.mark.parametrize("trade_count", [0, 1])
+    def test_print_open_trades_have_no_win_statistics(self, sample_strategy_data, trade_count):
+        sample_strategy_data["trade_history"] = sample_strategy_data["trade_history"][:trade_count]
+        sample_strategy_data["metrics"].update(win_rate=0.0, profit_factor=0.0)
+        result = StrategyResult("Open position", sample_strategy_data)
+
+        report = str(result)
+
+        assert "Win Rate: n/a" in report
+        assert "Profit Factor: n/a" in report
+        assert "no closed trades" in report
+        assert result.metrics["win_rate"] == 0.0
+        assert result.metrics["profit_factor"] == 0.0
+
+    def test_print_zero_win_rate_when_trades_closed(self, sample_strategy_data):
+        sample_strategy_data["metrics"].update(win_rate=0.0, profit_factor=0.0)
+
+        report = str(StrategyResult("Losing strategy", sample_strategy_data))
+
+        assert "Win Rate: 0.00%" in report
+        assert "Profit Factor: 0.00" in report
+
+    def test_print_sparse_metrics(self, sample_strategy_data):
+        sample_strategy_data["metrics"] = {"total_return": float("nan")}
+
+        report = str(StrategyResult("Unknown", sample_strategy_data))
+
+        assert "Total Return: n/a" in report
+        assert "Final Value: n/a" in report
+
+    def test_print_diagnostics(self, sample_strategy_data):
+        sample_strategy_data["order_outcomes"] = [
+            {"status": "rejected", "reason": "insufficient_cash"}
+        ]
+        sample_strategy_data["errors"] = [{"error_type": "ValueError", "message": "bad signal"}]
+        result = StrategyResult("TooBig", sample_strategy_data)
+
+        report = str(result)
+
+        assert result._rejection_summary() in " ".join(report.split())
+        assert "1 strategy error" in report
+        assert "result.errors" in report
+        assert max(map(len, report.splitlines())) <= 120
 
     @pytest.mark.parametrize(
         "reason,hint",
@@ -218,7 +274,75 @@ class TestBacktestResults:
         assert "..." not in report
         assert max(map(len, report.splitlines())) <= 120
         pd.testing.assert_frame_equal(results.compare(), before)
-        assert repr(results) == "BacktestResults(2 strategies)"
+        assert repr(results) == "BacktestResults(2 strategies; print(results) for the comparison)"
+
+    def test_print_flags_rejections_once_without_wide_lines(self, sample_strategy_data):
+        sample_strategy_data["order_outcomes"] = [
+            {"status": "rejected", "reason": "insufficient_cash"}
+        ] * 30
+        sample_strategy_data["metrics"]["total_trades"] = 0
+        results = BacktestResults({"TooBig": sample_strategy_data})
+
+        report = str(results)
+
+        assert "TooBig: 30 orders rejected" in report
+        assert report.count("30 orders rejected") == 1
+        assert "insufficient_cash" in report
+        assert "self.buy_budget(self.get_cash())" in report
+        assert max(map(len, report.splitlines())) <= 120
+
+    def test_html_matches_print_and_preserves_metrics(self, sample_results_dict):
+        sample_results_dict["Strategy1"]["order_outcomes"] = [
+            {"status": "rejected", "reason": "insufficient_cash"}
+        ]
+        results = BacktestResults(sample_results_dict)
+        before = results.compare().copy(deep=True)
+
+        html = results._repr_html_()
+
+        assert "<table" in html
+        for text in ("Strategy1", "Strategy2", "benchmark", "30.00%", "Max Drawdown", "Sharpe", "Trades"):
+            assert text in html
+        verdict = str(results).split("\n\n")[1]
+        assert verdict in unescape(html)
+        assert "Strategy1: 1 order rejected" in html
+        assert "self.buy_budget(self.get_cash())" in html
+        assert "..." not in html
+        pd.testing.assert_frame_equal(results.compare(), before)
+
+    def test_html_escapes_names_and_diagnostics(self, sample_strategy_data):
+        name = '<script>alert("strategy")</script> & friends'
+        sample_strategy_data["order_outcomes"] = [
+            {"status": "rejected", "reason": "<img src=x onerror=alert(1)>"}
+        ]
+        results = BacktestResults({name: sample_strategy_data})
+
+        html = results._repr_html_()
+
+        assert "<script>" not in html
+        assert "<img" not in html
+        assert escape(name) in html
+        assert "&lt;img" in html
+
+    def test_html_sparse_or_empty_results(self, sample_strategy_data):
+        sample_strategy_data["metrics"] = {"total_return": float("nan")}
+        results = BacktestResults({"Unknown": sample_strategy_data})
+
+        html = results._repr_html_()
+
+        assert "n/a" in html
+        assert "No strategy has a defined total return" in html
+        assert "No strategies available" in BacktestResults({})._repr_html_()
+
+    def test_print_wraps_long_strategy_names(self, sample_strategy_data):
+        name = "LongStrategyName_" * 10
+        results = BacktestResults({name: sample_strategy_data})
+
+        report = str(results)
+
+        assert max(map(len, report.splitlines())) <= 120
+        assert "..." not in report
+        assert name in unescape(results._repr_html_())
 
     @pytest.mark.parametrize(
         "benchmark_return,verdict",
