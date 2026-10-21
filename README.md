@@ -536,6 +536,57 @@ For a custom execution price, set `execution_price="custom"` and pass
 strategy/date/stage context by default; use `error_policy="continue"` only when
 you intentionally want structured diagnostics in `StrategyResult.errors`.
 
+### Inspecting a continued strategy error
+
+With `error_policy="continue"`, `print(result)` counts the errors and
+`result.explain_error(i)` explains error `i` without re-running anything:
+
+```python
+import pandas as pd
+from simple_backtest import Backtest, BacktestConfig, Strategy
+
+class Typo(Strategy):
+    def predict(self, data, trade_history):
+        if data["close"].iloc[-1] > 0:  # wrong column case: KeyError
+            return self.buy(1)
+        return self.hold()
+
+    def on_trade_executed(self, trade_info):
+        raise RuntimeError("could not write the fill to my ledger")
+
+close = [100.0 + i % 5 for i in range(30)]
+data = pd.DataFrame(
+    {"Open": close, "High": [c + 1 for c in close], "Low": [c - 1 for c in close], "Close": close},
+    index=pd.date_range("2024-01-01", periods=30),
+)
+config = BacktestConfig.default(lookback_period=5, error_policy="continue", show_progress=False)
+result = Backtest(data, config).run([Typo()]).get_strategy("Typo")
+print(result.explain_error(0, price_data=data))  # source line, stage, fills, prior bars
+raw = result.errors[0]                            # the full record; export_json keeps all
+```
+
+The explanation names the recorded source (the first frame outside
+simple_backtest, Python and installed packages, plus where it was raised) and
+what the stage means:
+
+- **prediction**: `predict()` saw only rows before the error bar; that
+  prediction submitted no order. Final liquidation can still fill on the last bar.
+- **trade callback**: the fill was already committed; a failing
+  `on_trade_executed()` does not undo it. The record keeps the fill's `order_id`,
+  so it is exact even when two fills share a bar.
+- **execution** / **final liquidation**: check the listed fills to see whether one
+  was recorded.
+
+`price_data` is optional context. It is checked against the recorded data
+fingerprint: only an exact match is labelled as the rows `predict()` saw; changed,
+partial or unverified frames are labelled as supplied context, and a missing
+timestamp or a timezone mismatch is refused. The bar where orders execute is shown
+separately. Strategy attributes, indicator values, locals and callback arguments
+are never recorded. Each new error stores only a file name, function name and line
+number (a few hundred bytes), and only when an error happens; results from older
+versions say the source was not recorded. HTML reports show the same source and
+stage in their error preview.
+
 ### Execution and Timing Assumptions
 
 Signals receive only rows strictly before the execution bar. Inside `predict()`,

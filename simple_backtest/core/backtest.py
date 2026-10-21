@@ -13,9 +13,9 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 
 from simple_backtest.config.settings import BacktestConfig
+from simple_backtest.core.error_context import source_location
 from simple_backtest.core.portfolio import Portfolio
 from simple_backtest.core.results import BacktestResults
-from simple_backtest.core.error_context import source_location
 from simple_backtest.core.serialization import data_fingerprint, json_value
 from simple_backtest.metrics.calculator import calculate_metrics
 from simple_backtest.strategy.base import Strategy

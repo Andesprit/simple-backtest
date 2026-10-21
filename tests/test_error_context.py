@@ -296,3 +296,16 @@ def test_print_points_to_explain_error(broken):
         "Call result.explain_error() to see where and when it failed; raw records are in result.errors."
         in " ".join(str(broken).split())
     )
+
+
+def test_readme_error_inspection_example_runs():
+    import re
+    from pathlib import Path
+
+    readme = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
+    section = readme[readme.index("### Inspecting a continued strategy error") :]
+    code = re.search(r"```python\n(.*?)```", section, re.DOTALL).group(1)
+    namespace = {}
+    with mock.patch("builtins.print"):
+        exec(compile(code, "README.md error inspection", "exec"), namespace)
+    assert namespace["raw"]["source"]["function"] == "predict"
