@@ -7,6 +7,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from simple_backtest.utils.validation import _normalize_ohlcv_columns
+
 # Color palette for consistent styling
 COLORS = [
     "#1f77b4",  # Blue
@@ -549,6 +551,7 @@ def plot_strategy_trades(
         >>> for fig in figures.values():
         ...     fig.show()
     """
+    price_data = _normalize_ohlcv_columns(price_data)
     results = _convert_results_to_dict(results)
     figures = {}
 

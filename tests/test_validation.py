@@ -54,9 +54,9 @@ class TestValidateDataframe:
     def test_ohlcv_column_case_is_normalized(self, valid_dataframe, case):
         df = valid_dataframe.rename(columns=case)
         df["Custom Feature"] = 7
-        validate_dataframe(df, require_volume=True)
-        pd.testing.assert_frame_equal(df[valid_dataframe.columns], valid_dataframe)
-        assert df["Custom Feature"].eq(7).all()
+        normalized = validate_dataframe(df, require_volume=True)
+        pd.testing.assert_frame_equal(normalized[valid_dataframe.columns], valid_dataframe)
+        assert normalized["Custom Feature"].eq(7).all()
 
     @pytest.mark.parametrize("alias", ["Close", "CLOSE"])
     def test_ambiguous_column_case_is_rejected(self, valid_dataframe, alias):

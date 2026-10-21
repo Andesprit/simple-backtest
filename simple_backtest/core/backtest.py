@@ -49,13 +49,11 @@ class Backtest:
         :param commission_calculator: Deterministic, side-effect-free custom commission
             function (uses config if None)
         """
-        # Copy before normalization so validation never mutates caller-owned data.
-        self.data = data.copy(deep=True)
         self.config = config.model_copy(deep=True)
         self._warn_rejected_orders = True
         config = self.config
-        validate_dataframe(
-            self.data,
+        self.data = validate_dataframe(
+            data,
             strict=True,
             require_volume=config.max_volume_participation is not None,
         )

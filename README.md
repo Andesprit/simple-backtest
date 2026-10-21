@@ -156,6 +156,20 @@ cash plus that share at the final $125 close gives $1,025. Replace `data` with
 your own OHLC DataFrame; add Volume when using volume participation limits.
 For moving-average examples below, supply enough rows for their lookback windows.
 
+To use your own CSV with a `Date` column:
+
+```python
+data = pd.read_csv("prices.csv", index_col="Date", parse_dates=True)
+```
+
+The engine accepts OHLCV names in any capitalization on an internal copy. It
+requires sorted dates, positive numeric OHLC prices and no missing prices. Review
+gaps before choosing `data.ffill()` (carry the previous value forward) or
+`data.dropna()` (omit incomplete bars); sort dates before forward-filling.
+If your only closing-price column is `Adj Close`, renaming it to `Close` does not
+adjust Open/High/Low. Use consistently adjusted OHLC to avoid mixing price bases.
+`validate_dataframe(data)` returns a normalized copy and leaves `data` unchanged.
+
 ## 📚 Documentation
 
 ### Creating a Custom Strategy

@@ -218,9 +218,15 @@ class BacktestConfig(BaseModel):
         """
         # Check lookback period fits in data
         if self.lookback_period >= total_rows:
+            fix = (
+                f"Reduce lookback_period to lookback_period={total_rows - 2} if the strategy's "
+                "required_history allows, or supply more data."
+                if total_rows >= 3 else "Supply more data; even lookback_period=1 needs at least 3 rows."
+            )
             raise ValueError(
                 f"lookback_period ({self.lookback_period}) must be less than "
-                f"total data rows ({total_rows})"
+                f"total data rows ({total_rows}). Need at least {self.lookback_period + 2} rows "
+                f"for this lookback and two trading dates. {fix}"
             )
 
         for field_name, boundary in (
