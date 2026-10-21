@@ -293,3 +293,65 @@ def test_compact_evidence_keeps_one_full_result(data, config):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         search.trial_summary()
+
+
+class Clashing(Strategy):
+    """Parameter names that are also summary field names."""
+
+    def __init__(self, defined=0, contains_selected=False, note="", total_return_max=0, name=None):
+        super().__init__(name=name)
+        self.size = defined
+
+    def predict(self, data, trade_history):
+        return self.hold() if trade_history else self.buy(self.size)
+
+
+def test_parameter_names_that_clash_with_summary_fields_keep_their_values(data, config):
+    grid = GridSearchOptimizer(verbose=False)
+    space = {
+        "defined": [2, 5],
+        "contains_selected": [False],
+        "note": ["mine"],
+        "total_return_max": [7],
+    }
+    grid.optimize(data, config, Clashing, space, metric="total_return")
+    summary = grid.trial_summary()
+    assert summary["param:defined"].tolist() == [2, 5]
+    assert summary["param:contains_selected"].tolist() == [False, False]
+    assert summary["param:note"].tolist() == ["mine", "mine"]
+    assert summary["param:total_return_max"].tolist() == [7, 7]
+    assert summary["defined"].tolist() == [1, 1]
+    assert summary["contains_selected"].tolist() == [False, True]  # 5 shares returns more
+    assert summary.loc[1, "total_return_max"] != 7
+    assert summary.attrs["trial_summary"]["parameter_columns"]["defined"] == "param:defined"
+    ticks = grid.plot_trials().layout.xaxis.ticktext
+    assert "defined=2" in ticks[0] and "defined=5" in ticks[1]
+    assert "contains_selected=False" in ticks[1]
+
+
+class Resource:
+    def __deepcopy__(self, memo):
+        raise TypeError("external resource cannot be copied")
+
+
+class UsesResource(Strategy):
+    def __init__(self, resource=None, name=None):
+        super().__init__(name=name)
+        self.resource = resource
+
+    def get_parameters(self):
+        return {"resource": "external"}
+
+    def predict(self, data, trade_history):
+        return self.hold()
+
+
+def test_noncopyable_parameter_values_still_optimize_and_inspect(data, config, runs):
+    resource = Resource()
+    grid = GridSearchOptimizer(verbose=False)
+    ranked = grid.optimize(data, config, UsesResource, {"resource": [resource]}, "total_return")
+    assert len(ranked) == 1 and runs["n"] == 1
+    assert grid.best_parameters["resource"] is resource
+    summary = grid.trial_summary()
+    assert summary.loc[0, "resource"] is resource and summary.loc[0, "contains_selected"]
+    assert runs["n"] == 1

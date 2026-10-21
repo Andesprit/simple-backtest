@@ -819,9 +819,11 @@ def plot_search_trials(
     """
     info = summary.attrs.get("trial_summary", {})
     objective, unit = info.get("objective", "objective"), info.get("unit", "")
+    columns = info.get("parameter_columns", {})
     labels, ticks = [], []
     for row in summary.to_dict("records"):
-        label = ", ".join(f"{name}={row[name]!r}" for name in param_names) or "strategy defaults"
+        label = ", ".join(f"{name}={row[columns.get(name, name)]!r}" for name in param_names)
+        label = label or "strategy defaults"
         labels.append(label)
         counts = f"{row['defined']}/{row['attempted']} defined"
         extra = [f"{row[s]} {s}" for s in ("undefined", "failed") if row[s]]

@@ -24,6 +24,14 @@ _PERCENT_METRICS = frozenset(
 )
 
 
+def _detached(value: Any) -> Any:
+    """Independent copy for inspection; objects that cannot be copied are shown as-is."""
+    try:
+        return deepcopy(value)
+    except Exception:
+        return value
+
+
 class Optimizer(ABC):
     """Abstract base class for parameter optimization.
 
@@ -80,7 +88,9 @@ class Optimizer(ABC):
             cleaned[name] = unique
         # An empty mapping deliberately evaluates the strategy's defaults once.
         self._space = cleaned
-        self._space_snapshot = deepcopy(cleaned)
+        self._space_snapshot = {
+            name: [_detached(value) for value in values] for name, values in cleaned.items()
+        }
         return cleaned
 
     def _finish_search(
@@ -330,6 +340,11 @@ class Optimizer(ABC):
             groups.setdefault(record[0], []).append(record)
         best = self._best if self._status == "done" else None
         best_key = None if best is None else best["evidence_key"]
+        statistics = [f"{objective}_{stat}" for stat in ("min", "median", "max")]
+        reserved = {"attempted", "defined", "undefined", "failed", *statistics}
+        reserved |= {"contains_selected", "selected_trial", "note"}
+        # A parameter named like a summary field keeps its value under "param:<name>".
+        columns = {name: f"param:{name}" if name in reserved else name for name in names}
         rows = []
         for key, items in groups.items():
             scores = pd.Series([score for _, status, score, *_ in items if status == "defined"])
@@ -339,16 +354,13 @@ class Optimizer(ABC):
                 for status in ("defined", "undefined", "failed")
             }
             row: Dict[str, Any] = {
-                name: deepcopy(self._space_snapshot[name][index]) for name, index in zip(names, key)
+                columns[name]: _detached(self._space_snapshot[name][index])
+                for name, index in zip(names, key)
             }
             row.update(
                 attempted=len(items),
                 **counts,
-                **{
-                    f"{objective}_min": scores.min(),
-                    f"{objective}_median": scores.median(),
-                    f"{objective}_max": scores.max(),
-                },
+                **dict(zip(statistics, (scores.min(), scores.median(), scores.max()))),
                 contains_selected=key == best_key,
                 selected_trial="",
                 note=self._trial_note(counts, len(items), objective),
@@ -362,9 +374,9 @@ class Optimizer(ABC):
                 row["selected_trial"] = f"{trial}{objective}={best['score']:.6g}"
             rows.append(row)
         frame = pd.DataFrame(rows)
-        for name in names:
+        for column in columns.values():
             # Keep the original parameter objects (no int-to-float upcasting).
-            frame[name] = pd.Series([row[name] for row in rows], dtype=object)
+            frame[column] = pd.Series([row[column] for row in rows], dtype=object)
         frame.attrs["trial_summary"] = {
             "objective": objective,
             "direction": "higher is better"
@@ -372,6 +384,7 @@ class Optimizer(ABC):
             else "lower is better",
             "unit": "%" if objective in _PERCENT_METRICS else "",
             "scope": "in-sample observations; not a robustness estimate or a selection rule",
+            "parameter_columns": columns,
         }
         return frame
 
