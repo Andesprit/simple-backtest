@@ -48,6 +48,7 @@ class StrategyResult:
         self.returns = data["returns"]
         self.errors = data.get("errors", [])
         self.order_outcomes = data.get("order_outcomes", [])
+        self._diagnostics_recorded = "errors" in data or "order_outcomes" in data
         self._metadata = deepcopy(data.get("metadata", {}))
 
     @property
@@ -58,6 +59,22 @@ class StrategyResult:
     def export_json(self, path: str | Path) -> None:
         """Export equity, trades, diagnostics, metrics, and provenance as portable JSON."""
         write_json(path, {"schema_version": 1, "name": self.name, **self._to_dict()})
+
+    def export_html(self, path: str | Path, price_data: pd.DataFrame | None = None) -> Path:
+        """Write one self-contained offline HTML report for this result.
+
+        The report holds metrics, diagnostics, recorded assumptions, an equity and
+        drawdown chart and, when ``price_data`` is given, the trade chart.
+
+        :param path: Output .html file path
+        :param price_data: Optional price DataFrame you gave to Backtest, for trade context
+        :return: The written path
+        """
+        from simple_backtest.visualization.report import write_report
+
+        results = BacktestResults({})
+        results._strategies[self.name] = self
+        return write_report(path, results, price_data)
 
     def summary(self) -> str:
         """Get formatted metrics and an explanation of any rejected orders.
@@ -126,7 +143,7 @@ class StrategyResult:
         """
         from simple_backtest.visualization.plotter import plot_strategy_trades
 
-        figures = plot_strategy_trades(price_data, {self.name: self._to_dict()})
+        figures = plot_strategy_trades(price_data, {self.name: self._plot_dict()})
         return figures.get(self.name)
 
     def export_trades(self, path: str) -> None:
@@ -183,6 +200,13 @@ class StrategyResult:
             "metadata": self.metadata,
         }
 
+    def _plot_dict(self) -> Dict[str, Any]:
+        """Like _to_dict, but leave out diagnostics a legacy result never recorded."""
+        data = self._to_dict()
+        if not self._diagnostics_recorded:
+            del data["errors"], data["order_outcomes"]
+        return data
+
     def __getitem__(self, key: str) -> Any:
         """Dict-style access for backward compatibility.
 
@@ -202,6 +226,13 @@ class StrategyResult:
     def __str__(self) -> str:
         """Show the result's key metrics and diagnostics with explicit units."""
         lines = [fill(self.name, width=120)]
+        lines.extend(f"  {label}: {formatted}" for label, formatted in self._metric_rows())
+        lines.extend(fill(note, width=120) for note in self._diagnostic_notes())
+        return "\n".join(lines)
+
+    def _metric_rows(self) -> list[tuple[str, str]]:
+        """Format the key metrics once for printed and HTML reports."""
+        rows = []
         closed_trades = any(trade.get("signal") == "sell" for trade in self.trade_history)
         for metric, label, precision, suffix, prefix in (
             ("total_return", "Total Return", ".2f", "%", ""),
@@ -217,9 +248,8 @@ class StrategyResult:
             formatted = _format_value(value, precision, suffix, prefix)
             if metric in ("win_rate", "profit_factor") and not closed_trades:
                 formatted = "n/a (no closed trades)"
-            lines.append(f"  {label}: {formatted}")
-        lines.extend(fill(note, width=120) for note in self._diagnostic_notes())
-        return "\n".join(lines)
+            rows.append((label, formatted))
+        return rows
 
     def _diagnostic_notes(self, max_message: int | None = None) -> list[str]:
         notes = []
@@ -280,6 +310,20 @@ class BacktestResults:
         :return: List of strategy names
         """
         return list(self._strategies.keys())
+
+    def export_html(self, path: str | Path, price_data: pd.DataFrame | None = None) -> Path:
+        """Write one self-contained offline HTML report for all strategies.
+
+        The report holds the comparison, diagnostics, recorded assumptions, an equity
+        and drawdown chart and, when ``price_data`` is given, one trade chart per strategy.
+
+        :param path: Output .html file path
+        :param price_data: Optional price DataFrame you gave to Backtest, for trade context
+        :return: The written path
+        """
+        from simple_backtest.visualization.report import write_report
+
+        return write_report(path, self, price_data)
 
     def export_json(self, path: str | Path) -> None:
         """Export all strategy results and the benchmark in one versioned document."""
@@ -412,7 +456,7 @@ class BacktestResults:
         """
         from simple_backtest.visualization.plotter import plot_strategy_trades
 
-        plot_data = {name: result._to_dict() for name, result in self._strategies.items()}
+        plot_data = {name: result._plot_dict() for name, result in self._strategies.items()}
         return plot_strategy_trades(price_data, plot_data)
 
     def export_all_metrics(self, path: str) -> None:
