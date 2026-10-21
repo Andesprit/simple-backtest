@@ -346,12 +346,18 @@ class UsesResource(Strategy):
         return self.hold()
 
 
-def test_noncopyable_parameter_values_still_optimize_and_inspect(data, config, runs):
-    resource = Resource()
+@pytest.mark.parametrize(
+    "value", [Resource(), [Resource()], {"inner": [Resource()]}], ids=["direct", "list", "dict"]
+)
+def test_noncopyable_values_still_optimize_but_refuse_inspection(data, config, runs, value):
     grid = GridSearchOptimizer(verbose=False)
-    ranked = grid.optimize(data, config, UsesResource, {"resource": [resource]}, "total_return")
+    ranked = grid.optimize(data, config, UsesResource, {"resource": [value]}, "total_return")
     assert len(ranked) == 1 and runs["n"] == 1
-    assert grid.best_parameters["resource"] is resource
-    summary = grid.trial_summary()
-    assert summary.loc[0, "resource"] is resource and summary.loc[0, "contains_selected"]
+    assert grid.best_parameters["resource"] is value
+    for inspect in (grid.trial_summary, grid.plot_trials):
+        with pytest.raises(ValueError, match="could not be copied.*search itself is complete"):
+            inspect()
     assert runs["n"] == 1
+    # A later ordinary search inspects normally again.
+    grid.optimize(data, config, Entry, {"mode": ["steady"]}, metric="total_return")
+    assert len(grid.trial_summary()) == 1

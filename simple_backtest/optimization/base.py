@@ -24,14 +24,6 @@ _PERCENT_METRICS = frozenset(
 )
 
 
-def _detached(value: Any) -> Any:
-    """Independent copy for inspection; objects that cannot be copied are shown as-is."""
-    try:
-        return deepcopy(value)
-    except Exception:
-        return value
-
-
 class Optimizer(ABC):
     """Abstract base class for parameter optimization.
 
@@ -66,6 +58,7 @@ class Optimizer(ABC):
         self._space_snapshot: Dict[str, List[Any]] = {}
         self._evaluations: list[tuple[tuple[int | None, ...], str, Any, Any, Any]] = []
         self._trial_context: Dict[str, Any] = {}
+        self._snapshot_error: str | None = None
 
     def _prepare_search(
         self, param_space: Dict[str, List[Any]], metric: str | None = None
@@ -77,6 +70,7 @@ class Optimizer(ABC):
         self._param_names = list(param_space)
         self._best = self._last_result = None
         self._evaluations, self._trial_context = [], {}
+        self._snapshot_error: str | None = None
         cleaned = {}
         for name, values in param_space.items():
             if not isinstance(values, (list, tuple, range)) or not values:
@@ -88,9 +82,12 @@ class Optimizer(ABC):
             cleaned[name] = unique
         # An empty mapping deliberately evaluates the strategy's defaults once.
         self._space = cleaned
-        self._space_snapshot = {
-            name: [_detached(value) for value in values] for name, values in cleaned.items()
-        }
+        # Inspection needs a detached copy; a noncopyable value only disables inspection.
+        try:
+            self._space_snapshot = deepcopy(cleaned)
+        except Exception as error:
+            self._space_snapshot = {}
+            self._snapshot_error = f"{type(error).__name__}: {error}"
         return cleaned
 
     def _finish_search(
@@ -300,6 +297,13 @@ class Optimizer(ABC):
         """Compact evidence of the last completed search, refused when incomplete."""
         if self._status not in ("done", "failed"):
             raise ValueError(self._no_winner_reason())
+        if self._snapshot_error:
+            raise ValueError(
+                f"{self.get_name()} cannot show a per-combination summary because a "
+                f"param_space value could not be copied ({self._snapshot_error}). The search "
+                "itself is complete: use the ranked DataFrame, optimizer.failures and "
+                "optimizer.best_result."
+            )
         records = self._evaluations
         counts = {
             status: sum(record[1] == status for record in records)
@@ -354,7 +358,7 @@ class Optimizer(ABC):
                 for status in ("defined", "undefined", "failed")
             }
             row: Dict[str, Any] = {
-                columns[name]: _detached(self._space_snapshot[name][index])
+                columns[name]: deepcopy(self._space_snapshot[name][index])
                 for name, index in zip(names, key)
             }
             row.update(
