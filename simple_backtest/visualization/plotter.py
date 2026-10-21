@@ -571,7 +571,12 @@ def _run_notes(name: str, result: Dict[str, Any]) -> list[str]:
 
     has_diagnostics = "errors" in result or "order_outcomes" in result
     notes = (
-        StrategyResult(name, result)._diagnostic_notes(max_message=120) if has_diagnostics else []
+        # Timelines are optional for plotting; diagnostics never read them.
+        StrategyResult(
+            name, {"returns": None, "portfolio_values": None, **result}
+        )._diagnostic_notes(max_message=120)
+        if has_diagnostics
+        else []
     )
     if not result["trade_history"]:
         if has_diagnostics and not notes:

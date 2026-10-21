@@ -208,3 +208,23 @@ def test_every_run_outcome_gets_an_explained_chart():
         assert all(fragment in text for fragment in fragments)
         assert _notes(single) == _notes(collection[name]) == _notes(free[name])
     pd.testing.assert_frame_equal(data, original)
+
+
+@pytest.mark.parametrize("drop", [("returns",), ("returns", "portfolio_values")])
+def test_dictionary_without_timelines_still_plots_fills_and_diagnostics(visualization_data, drop):
+    results, price_data = visualization_data
+    rejection = {"status": "rejected", "reason": "insufficient_cash"}
+    strategy = {key: value for key, value in results["strategy"].items() if key not in drop}
+    strategy.update(errors=[], order_outcomes=[rejection])
+    original = price_data.copy(deep=True)
+
+    figure = plot_strategy_trades(price_data, {"strategy": strategy})["strategy"]
+    empty = plot_strategy_trades(price_data, {"strategy": {**strategy, "trade_history": []}})
+
+    assert len(figure.data[0].x) == len(price_data)
+    assert list(figure.data[1].x) == [price_data.index[10]]
+    assert list(figure.data[2].x) == [price_data.index[40]]
+    assert "insufficient_cash" in " ".join(_notes(figure))
+    empty_notes = " ".join(_notes(empty["strategy"]))
+    assert "No fills" in empty_notes and "insufficient_cash" in empty_notes
+    pd.testing.assert_frame_equal(price_data, original)
