@@ -199,6 +199,62 @@ class TestStrategyResult:
 class TestBacktestResults:
     """Tests for BacktestResults class."""
 
+    def test_print_answers_comparison_without_changing_data(self, sample_results_dict):
+        results = BacktestResults(sample_results_dict)
+        before = results.compare().copy(deep=True)
+
+        with pd.option_context("display.max_columns", 2, "display.width", 20):
+            report = str(results)
+
+        for name in ("Strategy1", "Strategy2", "benchmark"):
+            assert name in report
+        for label in ("Return", "CAGR", "Max Drawdown", "Sharpe", "Trades"):
+            assert label in report
+        assert "30.00%" in report
+        assert "10.00%" in report
+        assert "1.80" in report
+        assert "Best total return: Strategy2" in report
+        assert "beat benchmark by 4.50 percentage points" in report
+        assert "..." not in report
+        assert max(map(len, report.splitlines())) <= 120
+        pd.testing.assert_frame_equal(results.compare(), before)
+        assert repr(results) == "BacktestResults(2 strategies)"
+
+    @pytest.mark.parametrize(
+        "benchmark_return,verdict",
+        [(35.0, "trailed benchmark by 5.00"), (30.0, "matched benchmark")],
+    )
+    def test_print_compares_best_return_to_benchmark(
+        self, sample_results_dict, benchmark_return, verdict
+    ):
+        sample_results_dict["benchmark"] = {
+            **sample_results_dict["benchmark"],
+            "metrics": {"total_return": benchmark_return},
+        }
+        report = str(BacktestResults(sample_results_dict))
+
+        assert "Best total return: Strategy2" in report
+        assert verdict in report
+        assert "n/a" in report
+
+    def test_print_without_benchmark(self, sample_results_dict):
+        del sample_results_dict["benchmark"]
+
+        report = str(BacktestResults(sample_results_dict))
+
+        assert "Best total return: Strategy2" in report
+        assert "No benchmark available" in report
+
+    def test_print_without_defined_returns(self, sample_strategy_data):
+        sample_strategy_data["metrics"] = {"total_return": float("nan")}
+
+        report = str(BacktestResults({"Unknown": sample_strategy_data}))
+
+        assert "Unknown" in report
+        assert "n/a" in report
+        assert "No strategy has a defined total return" in report
+        assert "No strategies available" in str(BacktestResults({}))
+
     @pytest.mark.parametrize("method", ["best_strategy", "worst_strategy"])
     def test_feedback_metric_typo(self, sample_results_dict, method):
         results = BacktestResults(sample_results_dict)

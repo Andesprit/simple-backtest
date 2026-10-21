@@ -4,6 +4,7 @@ from collections import Counter
 from copy import deepcopy
 from difflib import get_close_matches
 from pathlib import Path
+from textwrap import fill, wrap
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -420,6 +421,60 @@ class BacktestResults:
     def __repr__(self) -> str:
         """String representation."""
         return f"BacktestResults({len(self._strategies)} strategies)"
+
+    def __str__(self) -> str:
+        """Show returns, risk and trading activity without pandas display truncation."""
+        columns = [
+            ("total_return", "Return", 10, ".2f", "%"),
+            ("cagr", "CAGR", 10, ".2f", "%"),
+            ("max_drawdown", "Max Drawdown", 12, ".2f", "%"),
+            ("sharpe_ratio", "Sharpe", 8, ".2f", ""),
+            ("total_trades", "Trades", 6, ".0f", ""),
+        ]
+        comparison = self.compare(metrics=[column[0] for column in columns])
+        if comparison.empty:
+            return "No strategies available."
+
+        name_width = min(32, max(len("Strategy"), *(len(str(n)) for n in comparison.index)))
+        header = f"{'Strategy':<{name_width}}  " + "  ".join(
+            f"{label:>{width}}" for _, label, width, _, _ in columns
+        )
+        lines = [header, "-" * len(header)]
+        for name, metrics in comparison.iterrows():
+            name_lines = wrap(str(name), width=name_width) or [""]
+            values = []
+            for metric, _, width, precision, unit in columns:
+                value = metrics[metric]
+                formatted = f"{value:{precision}}{unit}" if pd.notna(value) else "n/a"
+                values.append(f"{formatted:>{width}}")
+            lines.append(f"{name_lines[0]:<{name_width}}  " + "  ".join(values))
+            lines.extend(name_lines[1:])
+
+        eligible = [
+            result
+            for result in self._strategies.values()
+            if pd.notna(result.metrics.get("total_return"))
+        ]
+        if eligible:
+            best = max(eligible, key=lambda result: result.metrics["total_return"])
+            best_return = best.metrics["total_return"]
+            verdict = f"Best total return: {best.name} ({best_return:.2f}%)."
+            benchmark_return = self.benchmark.metrics.get("total_return") if self.benchmark else None
+            if pd.notna(benchmark_return):
+                difference = best_return - benchmark_return
+                if difference == 0:
+                    verdict += " It matched benchmark."
+                else:
+                    direction = "beat" if difference > 0 else "trailed"
+                    verdict += (
+                        f" It {direction} benchmark by {abs(difference):.2f} percentage points."
+                    )
+            else:
+                verdict += " No benchmark available for comparison."
+        else:
+            verdict = "No strategy has a defined total return."
+        lines.extend(["", fill(verdict, width=120)])
+        return "\n".join(lines)
 
     def items(self):
         """Iterate over (name, result_dict) pairs for backward compatibility.
