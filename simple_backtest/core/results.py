@@ -80,6 +80,12 @@ class StrategyResult:
             "zero_volume": "Check Volume data and max_volume_participation; this bar permits no fill.",
         }
         hint = hints.get(reason, "Inspect result.order_outcomes for the rejected orders and reasons.")
+        final_cash = self.trade_history[-1].get("cash") if self.trade_history else None
+        if reason == "zero_size" and final_cash is not None and abs(final_cash) <= 1e-8:
+            hint = (
+                "Available cash was exhausted; lower investment_amount or raise initial_capital "
+                "to keep investing, or use self.hold() while no cash is available."
+            )
         count = sum(reasons.values())
         return (
             f"{count} order{'s' if count != 1 else ''} rejected; "

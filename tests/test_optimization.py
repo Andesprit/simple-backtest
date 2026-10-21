@@ -1,9 +1,11 @@
 """Tests for optimization modules."""
 
+import warnings
+
 import pandas as pd
 import pytest
 
-from simple_backtest import BacktestConfig
+from simple_backtest import BacktestConfig, BuyAndHoldStrategy
 from simple_backtest.optimization import (
     GridSearchOptimizer,
     RandomSearchOptimizer,
@@ -45,6 +47,26 @@ def param_space():
         "long_window": [20, 30],
         "shares": [10],
     }
+
+
+@pytest.mark.parametrize(
+    "optimizer",
+    [
+        GridSearchOptimizer(verbose=False),
+        RandomSearchOptimizer(n_iter=3, verbose=False),
+        WalkForwardOptimizer(n_splits=2, verbose=False),
+    ],
+)
+def test_optimizer_bounds_rejection_warnings(sample_data, backtest_config, optimizer):
+    settings = backtest_config.model_copy(update={"initial_capital": 1000})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        results = optimizer.optimize(
+            sample_data, settings, BuyAndHoldStrategy, {"shares": [100, 200, 300]}, "total_return"
+        )
+
+    assert not results.empty
+    assert len(caught) <= 1
 
 
 class TestGridSearchOptimizer:

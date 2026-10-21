@@ -125,6 +125,8 @@ class Optimizer(ABC):
         :return: Dict with parameters and metrics
         """
         bt = backtest or Backtest(data, config)
+        # Avoid one rejection warning per candidate; regular runs still report rejections.
+        bt._warn_rejected_orders = False
         results = bt.run([strategy])
         strategy_result = results.get_strategy(strategy.get_name())
         return strategy_result.metrics

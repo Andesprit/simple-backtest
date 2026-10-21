@@ -111,6 +111,19 @@ class TestStrategyResult:
         result = StrategyResult("Test", sample_strategy_data)
         assert result.summary() == format_metrics(result.metrics)
 
+    @pytest.mark.parametrize("cash", [0.0, 1e-12, 100.0])
+    def test_zero_size_hint_distinguishes_cash_exhaustion(self, sample_strategy_data, cash):
+        sample_strategy_data["trade_history"][-1]["cash"] = cash
+        sample_strategy_data["order_outcomes"] = [{"status": "rejected", "reason": "zero_size"}]
+        summary = StrategyResult("DCA", sample_strategy_data).summary()
+
+        if cash <= 1e-8:
+            assert "cash was exhausted" in summary
+            assert "initial_capital" in summary
+        else:
+            assert "positive size" in summary
+            assert "cash was exhausted" not in summary
+
     def test_initialization(self, sample_strategy_data):
         """Test StrategyResult initialization."""
         result = StrategyResult("TestStrategy", sample_strategy_data)

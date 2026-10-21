@@ -139,7 +139,9 @@ class WalkForwardOptimizer(Optimizer):
                 }
             )
             strategy = strategy_class(**parameters)
-            evaluation = Backtest(evaluation_data, evaluation_config).run([strategy])
+            backtest = Backtest(evaluation_data, evaluation_config)
+            backtest._warn_rejected_orders = False
+            evaluation = backtest.run([strategy])
             result = evaluation.get_strategy(strategy.get_name())
             assert evaluation.benchmark is not None
             folds.append(

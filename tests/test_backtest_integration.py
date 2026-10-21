@@ -86,6 +86,20 @@ def test_fully_filled_dca_and_ma_do_not_warn(sample_data, parallel):
         assert "orders rejected" not in result.summary()
 
 
+def test_dca_explains_exhausted_cash_after_earlier_fills(sample_data):
+    config = BacktestConfig(initial_capital=1000, lookback_period=30, parallel_execution=False)
+    strategy = DCAStrategy(investment_amount=500, interval_days=30)
+    with pytest.warns(UserWarning, match="cash was exhausted") as caught:
+        results = Backtest(sample_data, config).run([strategy])
+
+    assert len(caught) == 1
+    result = results.get_strategy(strategy.get_name())
+    assert len(result.trade_history) == 2
+    assert "initial_capital" in result.summary()
+    assert "investment_amount" in result.summary()
+    assert result.errors == []
+
+
 class TestFullBacktestWorkflow:
     """Tests for complete backtest workflows."""
 

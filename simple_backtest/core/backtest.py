@@ -52,6 +52,7 @@ class Backtest:
         # Copy before normalization so validation never mutates caller-owned data.
         self.data = data.copy(deep=True)
         self.config = config.model_copy(deep=True)
+        self._warn_rejected_orders = True
         config = self.config
         validate_dataframe(
             self.data,
@@ -333,7 +334,7 @@ class Backtest:
         # Warn in the caller process so parallel runs have the same feedback and filters.
         for name in backtest_results.list_strategies():
             rejection_summary = backtest_results.get_strategy(name)._rejection_summary()
-            if rejection_summary:
+            if self._warn_rejected_orders and rejection_summary:
                 warnings.warn(f"Strategy '{name}': {rejection_summary}", UserWarning, stacklevel=2)
         return backtest_results
 
