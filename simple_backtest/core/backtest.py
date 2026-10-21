@@ -15,6 +15,7 @@ from tqdm import tqdm
 from simple_backtest.config.settings import BacktestConfig
 from simple_backtest.core.portfolio import Portfolio
 from simple_backtest.core.results import BacktestResults
+from simple_backtest.core.error_context import source_location
 from simple_backtest.core.serialization import data_fingerprint, json_value
 from simple_backtest.metrics.calculator import calculate_metrics
 from simple_backtest.strategy.base import Strategy
@@ -387,6 +388,7 @@ class Backtest:
             try:
                 strategy.on_trade_executed(deepcopy(trade_info))
             except Exception as error:
+                recorded = len(errors)
                 self._handle_strategy_error(
                     strategy,
                     current_date,
@@ -394,6 +396,9 @@ class Backtest:
                     error,
                     errors,
                 )
+                if len(errors) > recorded:
+                    # Links the error to its already committed fill, even on a shared bar.
+                    errors[-1]["order_id"] = trade_info.get("order_id")
 
         # Get trading date range
         start_idx, end_idx = self._start_idx, self._end_idx
@@ -557,6 +562,7 @@ class Backtest:
                 "stage": stage,
                 "error_type": type(error).__name__,
                 "message": str(error) + hint,
+                "source": source_location(error),
             }
         )
         logger.warning(str(wrapped))

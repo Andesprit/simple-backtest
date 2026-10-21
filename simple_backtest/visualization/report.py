@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 from plotly.offline import get_plotlyjs
 
+from simple_backtest.core.error_context import error_where, stage_meaning
 from simple_backtest.core.results import _format_value
 from simple_backtest.utils.validation import _normalize_ohlcv_columns
 from simple_backtest.visualization.plotter import (
@@ -217,8 +218,18 @@ def _run_details(name, result, coverage, trade_chart) -> str:
         )
         html += "</table></details>"
     if result.errors:
+        rows = [
+            {**error, "where": error_where(error), "meaning": stage_meaning(error, short=True)}
+            for error in result.errors[:PREVIEW_ROWS]
+        ]
         html += _preview(
-            "Strategy errors", result.errors, ["timestamp", "stage", "error_type", "message"]
+            "Strategy errors",
+            rows + result.errors[PREVIEW_ROWS:],
+            ["timestamp", "stage", "error_type", "message", "where", "meaning"],
+        )
+        html += (
+            '<p class="muted">In Python, result.explain_error(i, price_data=data) shows the '
+            "fills and prior bars around error i without re-running the strategy.</p>"
         )
     return html
 

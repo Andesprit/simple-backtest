@@ -76,6 +76,30 @@ class StrategyResult:
         results._strategies[self.name] = self
         return write_report(path, results, price_data)
 
+    def explain_error(
+        self,
+        error_index: int = 0,
+        price_data: pd.DataFrame | None = None,
+        context_bars: int = 5,
+    ) -> str:
+        """Explain one recorded strategy error in plain text, without re-running anything.
+
+        Shows the error's time, stage, message, recorded source location, what the
+        stage means for timing and fills, and the fills on that bar. With
+        ``price_data`` (the DataFrame you gave to Backtest) it also shows up to
+        ``context_bars`` bars before the error and, labelled separately, the bar
+        where orders execute. Supplied prices are checked against the recorded data
+        fingerprint and labelled when they differ.
+
+        :param error_index: Position in ``result.errors`` (negative counts from the end)
+        :param price_data: Optional price DataFrame for context
+        :param context_bars: Bars of prior context to show, from 1 to 200
+        :return: Multi-line explanation; print() it
+        """
+        from simple_backtest.core.error_context import explain_error
+
+        return explain_error(self, error_index, price_data, context_bars)
+
     def summary(self) -> str:
         """Get formatted metrics and an explanation of any rejected orders.
 
@@ -265,7 +289,7 @@ class StrategyResult:
             notes.append(
                 f"{count} strategy error{'s' if count != 1 else ''} recorded; "
                 f"first: {first.get('error_type', 'error')}: {message}. "
-                "Inspect result.errors for details."
+                "Call result.explain_error() to see where and when it failed; raw records are in result.errors."
             )
         return notes
 
