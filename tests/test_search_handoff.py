@@ -16,7 +16,7 @@ from simple_backtest.optimization import (
 )
 from simple_backtest.optimization.base import Optimizer
 from simple_backtest.strategy.base import Strategy
-from simple_backtest.utils.validation import InsufficientHistoryError
+from simple_backtest.utils.validation import InsufficientHistoryError, StrategyExecutionError
 
 SPACE = {"short_window": [3, 4], "long_window": [8, 10], "shares": [1]}
 
@@ -218,3 +218,37 @@ def test_walk_forward_points_to_its_out_of_sample_report(data, config):
     with pytest.raises(ValueError, match="optimizer.report.folds"):
         optimizer.best_result
     assert "out-of-sample" in str(optimizer)
+
+
+class Explodes(Strategy):
+    def __init__(self, explode=False):
+        super().__init__()
+        self.explode = explode
+
+    def predict(self, data, trade_history):
+        if self.explode:
+            raise RuntimeError("indicator failed on this candidate")
+        return self.hold()
+
+
+@pytest.mark.parametrize(
+    "optimizer",
+    [
+        GridSearchOptimizer(verbose=False),
+        RandomSearchOptimizer(n_iter=2, random_state=1, verbose=False),
+    ],
+)
+def test_search_aborted_after_a_success_selects_nothing(data, config, runs, optimizer):
+    optimizer.optimize(data, config, MovingAverageStrategy, SPACE, "total_return")
+    with pytest.raises(StrategyExecutionError, match="indicator failed"):
+        optimizer.optimize(data, config, Explodes, {"explode": [False, True]}, "total_return")
+    after_abort = runs["n"]
+    assert f"{optimizer.get_name()}: The last search stopped with an error" in str(optimizer)
+    for attribute in ("best_parameters", "best_result"):
+        with pytest.raises(ValueError, match="stopped with an error"):
+            getattr(optimizer, attribute)
+    assert runs["n"] == after_abort
+
+    optimizer.optimize(data, config, Explodes, {"explode": [False]}, "total_return")
+    assert optimizer.best_parameters == {"explode": False}
+    assert optimizer.best_result.name == "Explodes"

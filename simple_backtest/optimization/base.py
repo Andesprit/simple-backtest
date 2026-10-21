@@ -161,7 +161,8 @@ class Optimizer(ABC):
         )
 
     def _selected(self) -> Dict[str, Any]:
-        if self._best is None:
+        # A tentative best from an unfinished search is never a selection.
+        if self._status != "done" or self._best is None:
             raise ValueError(self._no_winner_reason())
         return self._best
 
@@ -248,7 +249,7 @@ class Optimizer(ABC):
 
     def __str__(self) -> str:
         """Concise outcome of the last search."""
-        if self._best is None:
+        if self._status != "done" or self._best is None:
             return f"{self.get_name()}: {self._no_winner_reason()}"
         best, summary = self._best, self.summary
         direction = "higher" if metric_is_maximized(self._objective or "") else "lower"
