@@ -1,5 +1,7 @@
 """Interactive visualization suite using Plotly."""
 
+from html import escape
+from textwrap import wrap
 from typing import Any, Dict
 
 import numpy as np
@@ -44,6 +46,8 @@ def _convert_results_to_dict(results) -> Dict[str, Dict[str, Any]]:
                 "trade_history": strategy_result.trade_history,
                 "returns": strategy_result.returns,
                 "metrics": strategy_result.metrics,
+                "errors": strategy_result.errors,
+                "order_outcomes": strategy_result.order_outcomes,
             }
         if results.benchmark:
             results_dict["benchmark"] = {
@@ -527,17 +531,68 @@ def create_comparison_table(results) -> go.Figure:
     return fig
 
 
+def _trade_window(price_data: pd.DataFrame, result: Dict[str, Any], name: str):
+    """Select the prices for the result's own timeline and describe any missing dates."""
+    timeline = next(
+        (
+            series.index
+            for series in (result.get("returns"), result.get("portfolio_values"))
+            if series is not None and len(series)
+        ),
+        None,
+    )
+    if timeline is None:
+        return price_data, []
+
+    start, end = timeline[0], timeline[-1]
+    plot_data = price_data[(price_data.index >= start) & (price_data.index <= end)]
+    if plot_data.empty:
+        raise ValueError(
+            f"price_data has no prices between {start} and {end}, the dates covered by "
+            f"'{name}'. Pass the same price DataFrame you gave to Backtest."
+        )
+    missing = timeline.difference(price_data.index)
+    if missing.empty:
+        return plot_data, []
+    shown = ", ".join(
+        str(date.date()) if date == date.normalize() else str(date) for date in missing[:3]
+    )
+    more = f" and {len(missing) - 3} more" if len(missing) > 3 else ""
+    return plot_data, [
+        f"Incomplete price data: {len(missing)} of {len(timeline)} backtest dates have no price "
+        f"({shown}{more}). This chart does not show the full run; pass the same price "
+        "DataFrame you gave to Backtest."
+    ]
+
+
+def _run_notes(name: str, result: Dict[str, Any]) -> list[str]:
+    """Explain missing fills with the result's own rejection and error diagnostics."""
+    from simple_backtest.core.results import StrategyResult
+
+    has_diagnostics = "errors" in result or "order_outcomes" in result
+    notes = (
+        StrategyResult(name, result)._diagnostic_notes(max_message=120) if has_diagnostics else []
+    )
+    if not result["trade_history"]:
+        if has_diagnostics and not notes:
+            notes.insert(0, "No orders were placed: the strategy held on every trading bar.")
+        else:
+            notes.insert(0, "No fills: no order was executed in this run.")
+    return notes
+
+
 def plot_strategy_trades(
     price_data: pd.DataFrame,
     results,
 ) -> Dict[str, go.Figure]:
     """Plot price chart with buy/sell markers for each strategy.
 
-    Creates a separate figure for each strategy showing:
-    - Price data (Close price)
+    Creates a separate figure for each strategy, including strategies without fills, showing:
+    - Price data (Close price) over the strategy's whole trading period
     - Buy markers (green up triangles)
     - Sell markers (red down triangles)
     - Profit/Loss summary text
+    - Notes below the chart for no fills, rejected orders, strategy errors or missing prices
 
     Args:
         price_data: Original OHLCV DataFrame with DatetimeIndex
@@ -545,6 +600,9 @@ def plot_strategy_trades(
 
     Returns:
         Dictionary mapping strategy names to their trade plot figures
+
+    Raises:
+        ValueError: If price_data has no prices inside a strategy's trading period
 
     Example:
         >>> figures = plot_strategy_trades(data, results)
@@ -562,22 +620,11 @@ def plot_strategy_trades(
 
         trade_history = result["trade_history"]
         metrics = result["metrics"]
-
-        if not trade_history:
-            continue
+        plot_data, notes = _trade_window(price_data, result, name)
+        incomplete = bool(notes)
+        notes += _run_notes(name, result)
 
         fig = go.Figure()
-
-        # Get trading date range
-        trade_dates = [t["timestamp"] for t in trade_history]
-        if trade_dates:
-            start_date = min(trade_dates)
-            end_date = max(trade_dates)
-            # Add some buffer
-            mask = (price_data.index >= start_date) & (price_data.index <= end_date)
-            plot_data = price_data[mask]
-        else:
-            plot_data = price_data
 
         # Plot close price
         price_trace = go.Scatter(
@@ -649,14 +696,15 @@ def plot_strategy_trades(
         total_trades = metrics.get("total_trades", 0)
 
         # Determine profit/loss color
-        pnl_color = "green" if total_return > 0 else "red"
+        pnl_color = "green" if total_return > 0 else "red" if total_return < 0 else "black"
 
         # Add annotation with strategy performance
         annotation_text = (
             f"<b>Strategy Performance</b><br>"
             f"Total Return: <span style='color:{pnl_color}'>{total_return:+.2f}%</span><br>"
             f"Sharpe Ratio: {sharpe_ratio:.2f}<br>"
-            f"Win Rate: {win_rate:.2f}%<br>"
+            # Win statistics only apply once a trade has closed.
+            f"Win Rate: {f'{win_rate:.2f}%' if sell_trades else 'n/a (no closed trades)'}<br>"
             f"Total Trades: {int(total_trades)}"
         )
 
@@ -676,12 +724,33 @@ def plot_strategy_trades(
             font=dict(size=11),
         )
 
+        # Keep run notes below the axis so they never cover prices or markers.
+        note_lines = [escape(line) for note in notes for line in wrap(note, 110)]
+        if note_lines:
+            fig.add_annotation(
+                text="<br>".join(note_lines),
+                xref="paper",
+                yref="paper",
+                x=0,
+                y=0,
+                yshift=-60,
+                xanchor="left",
+                yanchor="top",
+                align="left",
+                showarrow=False,
+                font=dict(size=12, color="darkred" if incomplete else "black"),
+            )
+
+        title = f"{escape(name)} - Trading Signals"
+        if incomplete:
+            title += " (incomplete price data)"
         fig.update_layout(
-            title=f"{name} - Trading Signals",
+            title=title,
             xaxis_title="Date",
             yaxis_title="Price ($)",
             template="plotly_white",
-            height=600,
+            height=600 + 18 * len(note_lines),
+            margin=dict(b=80 + 18 * len(note_lines)),
             hovermode="closest",
             showlegend=True,
             legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),

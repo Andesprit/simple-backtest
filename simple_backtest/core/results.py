@@ -118,6 +118,9 @@ class StrategyResult:
     def plot_trades(self, price_data):
         """Plot price chart with buy/sell markers for this strategy.
 
+        The chart covers the whole trading period, even without fills, and notes
+        below it explain rejected orders, strategy errors or missing prices.
+
         :param price_data: Original OHLCV DataFrame with DatetimeIndex
         :return: Plotly figure
         """
@@ -218,7 +221,7 @@ class StrategyResult:
         lines.extend(fill(note, width=120) for note in self._diagnostic_notes())
         return "\n".join(lines)
 
-    def _diagnostic_notes(self) -> list[str]:
+    def _diagnostic_notes(self, max_message: int | None = None) -> list[str]:
         notes = []
         rejected = self._rejection_summary()
         if rejected:
@@ -226,9 +229,12 @@ class StrategyResult:
         if self.errors:
             count = len(self.errors)
             first = self.errors[0]
+            message = str(first.get("message", ""))
+            if max_message is not None and len(message) > max_message:
+                message = message[: max_message - 3] + "..."
             notes.append(
                 f"{count} strategy error{'s' if count != 1 else ''} recorded; "
-                f"first: {first.get('error_type', 'error')}: {first.get('message', '')}. "
+                f"first: {first.get('error_type', 'error')}: {message}. "
                 "Inspect result.errors for details."
             )
         return notes

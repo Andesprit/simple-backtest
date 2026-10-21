@@ -312,6 +312,23 @@ print(f"Best: {best.name} (Sharpe: {best.metrics['sharpe_ratio']:.2f})")
 results.plot_comparison().show()
 ```
 
+To see each strategy's fills on the price chart, pass the same price DataFrame
+you gave to `Backtest`:
+
+```python
+results.get_strategy('BuyAndHold').plot_trades(data).show()  # One strategy
+
+for name, fig in results.plot_trades(data).items():  # Every strategy, without the benchmark
+    fig.show()
+```
+
+Each chart covers the whole trading period, including bars after the last fill.
+A strategy with no fills still gets a chart. A note below the chart says whether
+the strategy placed no orders, its orders were rejected (with the main reason and
+a sizing hint), or it raised errors (full details stay in `result.errors`). If
+the price data misses some backtest dates, the chart title says so; if it covers
+none of them, `plot_trades` raises a `ValueError`.
+
 ### Parameter Optimization
 
 Find optimal strategy parameters using built-in optimizers:
