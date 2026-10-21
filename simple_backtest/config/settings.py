@@ -1,10 +1,11 @@
 """Backtest configuration with Pydantic validation."""
 
 from datetime import datetime
+from difflib import get_close_matches
 from math import isfinite
 from typing import List, Literal, Optional, Tuple, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 
 class BacktestConfig(BaseModel):
@@ -89,6 +90,26 @@ class BacktestConfig(BaseModel):
         default=None,
         description="Optional descriptive label only; it does not alter accounting behavior",
     )
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def suggest_unknown_fields(cls, value, handler):
+        """Suggest spellings only for fields Pydantic actually rejected as extras."""
+        try:
+            return handler(value)
+        except ValidationError as error:
+            issues = error.errors()
+            hints = []
+            for issue in issues:
+                if issue["type"] == "extra_forbidden":
+                    name = issue["loc"][-1]
+                    matches = get_close_matches(name, cls.model_fields, n=1)
+                    if matches:
+                        hints.append(f"Unknown field '{name}'. Did you mean '{matches[0]}'?")
+            if not hints:
+                raise
+            messages = [f"{'.'.join(map(str, issue['loc']))}: {issue['msg']}" for issue in issues]
+            raise ValueError(". ".join(messages + hints)) from error
 
     @field_validator("n_jobs")
     @classmethod

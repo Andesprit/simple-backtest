@@ -69,6 +69,32 @@ def test_optimizer_bounds_rejection_warnings(sample_data, backtest_config, optim
     assert len(caught) <= 1
 
 
+@pytest.mark.parametrize(
+    "optimizer", [GridSearchOptimizer(verbose=False), RandomSearchOptimizer(n_iter=2, verbose=False)]
+)
+def test_feedback_all_optimizer_candidates_failed(sample_data, backtest_config, optimizer):
+    with pytest.raises(ValueError) as caught:
+        optimizer.optimize(sample_data, backtest_config, MovingAverageStrategy, {"short": [5, 10]})
+    message = str(caught.value)
+    assert "All 2 candidate evaluations failed" in message
+    assert "'short'" in message
+    assert "Valid parameters:" in message
+    for parameter in ("short_window", "long_window", "shares", "name"):
+        assert parameter in message
+    assert len(optimizer.failures) == 2
+    assert optimizer.summary["failed_evaluations"] == 2
+
+
+def test_feedback_random_search_keeps_valid_candidates(sample_data, backtest_config):
+    optimizer = RandomSearchOptimizer(n_iter=2, verbose=False)
+    results = optimizer.optimize(
+        sample_data, backtest_config, MovingAverageStrategy,
+        {"short_window": [5, 30], "long_window": [20], "shares": [1]},
+    )
+    assert results["short_window"].tolist() == [5]
+    assert len(optimizer.failures) == 1
+
+
 class TestGridSearchOptimizer:
     """Tests for GridSearchOptimizer."""
 

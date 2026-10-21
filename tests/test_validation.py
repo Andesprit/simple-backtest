@@ -1,5 +1,6 @@
 """Tests for validation utilities."""
 
+import pickle
 from datetime import timedelta
 
 import pandas as pd
@@ -11,6 +12,7 @@ from simple_backtest.utils.validation import (
     DataValidationError,
     DateRangeError,
     StrategyError,
+    StrategyExecutionError,
     validate_dataframe,
     validate_date_range,
     validate_strategies,
@@ -245,8 +247,28 @@ class TestValidateStrategies:
 
     def test_not_list(self):
         """Test that non-list raises error."""
-        with pytest.raises(TypeError):  # Will raise TypeError for non-iterable
+        with pytest.raises(TypeError, match="list"):
             validate_strategies(DummyStrategy())
+
+    def test_feedback_class_requires_instantiation(self):
+        with pytest.raises(StrategyError) as caught:
+            validate_strategies([DummyStrategy])
+        assert "DummyStrategy(...)" in str(caught.value)
+        assert "instance" in str(caught.value)
+
+    def test_feedback_direct_class_requires_a_list_of_instances(self):
+        with pytest.raises(TypeError, match=r"run\(\[DummyStrategy\(\.\.\.\)\]\)"):
+            validate_strategies(DummyStrategy)
+
+    @pytest.mark.parametrize("sets_name", [False, True])
+    def test_feedback_missing_super_init(self, sets_name):
+        class Uninitialized(DummyStrategy):
+            def __init__(self):
+                if sets_name:
+                    self._name = "Custom"
+
+        with pytest.raises(AttributeError, match=r"super\(\).__init__\(\)"):
+            validate_strategies([Uninitialized()])
 
     def test_non_strategy_instance(self):
         """Test that non-Strategy instance raises error."""
@@ -278,6 +300,16 @@ class TestValidateStrategies:
 
 class TestExceptionClasses:
     """Tests for custom exception classes."""
+
+    def test_feedback_column_hint_survives_worker_serialization(self):
+        error = StrategyExecutionError(
+            "BadColumn", pd.Timestamp("2024-01-01"), "prediction", KeyError("close"),
+            ". Available columns: ['Close'].",
+        )
+        restored = pickle.loads(pickle.dumps(error))
+        assert isinstance(restored, StrategyExecutionError)
+        assert restored.hint == error.hint
+        assert str(restored).count("Available columns: ['Close']") == 1
 
     def test_backtest_error_inheritance(self):
         """Test that BacktestError inherits from Exception."""

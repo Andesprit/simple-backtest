@@ -143,4 +143,5 @@ class RandomSearchOptimizer(Optimizer):
                 "repeats": self.repeats,
                 "available_candidates": combinations,
             },
+            strategy_class=strategy_class,
         )

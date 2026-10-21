@@ -542,7 +542,13 @@ class Backtest:
         errors: List[Dict[str, Any]],
     ) -> None:
         """Raise a contextual error or append a structured diagnostic."""
-        wrapped = StrategyExecutionError(strategy.get_name(), timestamp, stage, error)
+        hint = ""
+        if stage == "prediction" and isinstance(error, KeyError):
+            hint = (
+                ". If selecting a data column in predict(), names are case-sensitive. "
+                f"Available columns: {list(self.data.columns)}."
+            )
+        wrapped = StrategyExecutionError(strategy.get_name(), timestamp, stage, error, hint)
         if self.config.error_policy == "raise":
             raise wrapped from error
 
@@ -552,7 +558,7 @@ class Backtest:
                 "timestamp": timestamp,
                 "stage": stage,
                 "error_type": type(error).__name__,
-                "message": str(error),
+                "message": str(error) + hint,
             }
         )
         logger.warning(str(wrapped))

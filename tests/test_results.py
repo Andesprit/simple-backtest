@@ -148,6 +148,14 @@ class TestStrategyResult:
         with pytest.raises(KeyError, match="Metric 'nonexistent' not found"):
             result.get_metric("nonexistent")
 
+    def test_feedback_metric_typo(self, sample_strategy_data):
+        result = StrategyResult("Test", sample_strategy_data)
+        with pytest.raises(KeyError) as caught:
+            result.get_metric("sharpe")
+        assert "Did you mean 'sharpe_ratio'?" in str(caught.value)
+        assert "Available metrics:" in str(caught.value)
+        assert "total_return" in str(caught.value)
+
     def test_dict_style_access(self, sample_strategy_data):
         """Test dict-style access to attributes."""
         result = StrategyResult("TestStrategy", sample_strategy_data)
@@ -190,6 +198,14 @@ class TestStrategyResult:
 
 class TestBacktestResults:
     """Tests for BacktestResults class."""
+
+    @pytest.mark.parametrize("method", ["best_strategy", "worst_strategy"])
+    def test_feedback_metric_typo(self, sample_results_dict, method):
+        results = BacktestResults(sample_results_dict)
+        with pytest.raises(KeyError) as caught:
+            getattr(results, method)("sharpe")
+        assert "Did you mean 'sharpe_ratio'?" in str(caught.value)
+        assert "Available metrics:" in str(caught.value)
 
     def test_initialization(self, sample_results_dict):
         """Test BacktestResults initialization."""

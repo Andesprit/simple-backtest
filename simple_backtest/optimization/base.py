@@ -1,6 +1,7 @@
 """Base optimizer class for strategy parameter optimization."""
 
 from abc import ABC, abstractmethod
+from inspect import signature
 from pathlib import Path
 from typing import Any, Dict, List, Type
 
@@ -52,7 +53,11 @@ class Optimizer(ABC):
         return cleaned
 
     def _finish_search(
-        self, rows: list[dict[str, Any]], metric: str, metadata: dict[str, Any]
+        self,
+        rows: list[dict[str, Any]],
+        metric: str,
+        metadata: dict[str, Any],
+        strategy_class: Type[Strategy],
     ) -> pd.DataFrame:
         frame = pd.DataFrame(rows)
         ranked = rank_results(frame, metric)
@@ -61,6 +66,25 @@ class Optimizer(ABC):
             failed_evaluations=len(self.failures),
             undefined_objectives=len(frame) - len(ranked),
         )
+        if not rows and self.failures:
+            valid_parameters = [
+                name
+                for name, parameter in signature(strategy_class.__init__).parameters.items()
+                if name != "self"
+                and parameter.kind in (
+                    parameter.POSITIONAL_OR_KEYWORD,
+                    parameter.KEYWORD_ONLY,
+                )
+            ]
+            first = self.failures[0]
+            raise ValueError(
+                f"All {len(self.failures)} candidate evaluations failed for "
+                f"{strategy_class.__name__}. First failure for {first['parameters']}: "
+                f"{first['error_type']}: {first['message']}. "
+                f"Valid parameters: {valid_parameters}. "
+                "Correct param_space names and values (or lookback_period for history failures) "
+                "and retry. Individual failures are available in optimizer.failures."
+            )
         ranked.attrs["search"] = json_value(
             {
                 **metadata,

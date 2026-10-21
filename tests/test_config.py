@@ -3,6 +3,7 @@
 from datetime import datetime
 
 import pytest
+from pydantic import ValidationError
 
 from simple_backtest.config.settings import BacktestConfig
 
@@ -145,6 +146,15 @@ def test_config_validation_constraints():
 def test_config_rejects_unknown_or_removed_options():
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         BacktestConfig(enable_caching=True)
+
+
+@pytest.mark.parametrize("constructor", [BacktestConfig, BacktestConfig.default])
+def test_feedback_config_typo(constructor):
+    with pytest.raises(ValidationError) as caught:
+        constructor(initial_captal=500)
+    message = str(caught.value)
+    assert "initial_captal" in message
+    assert "Did you mean 'initial_capital'?" in message
 
 
 def test_config_rejects_mixed_timezone_boundaries():

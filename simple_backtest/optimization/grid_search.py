@@ -114,4 +114,5 @@ class GridSearchOptimizer(Optimizer):
                 "parameter_space": param_space,
                 "available_candidates": combination_count,
             },
+            strategy_class=strategy_class,
         )

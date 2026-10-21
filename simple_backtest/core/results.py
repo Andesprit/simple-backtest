@@ -2,6 +2,7 @@
 
 from collections import Counter
 from copy import deepcopy
+from difflib import get_close_matches
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -9,6 +10,12 @@ import pandas as pd
 
 from simple_backtest.core.serialization import write_json
 from simple_backtest.metrics.objectives import metric_is_maximized
+
+
+def _metric_hint(metric: str, available: list[str]) -> str:
+    matches = get_close_matches(metric, available, n=1) if isinstance(metric, str) else []
+    suggestion = f" Did you mean '{matches[0]}'?" if matches else ""
+    return f"Available metrics: {available}.{suggestion}"
 
 
 class StrategyResult:
@@ -149,7 +156,7 @@ class StrategyResult:
         """
         if metric_name not in self.metrics:
             available = list(self.metrics.keys())
-            raise KeyError(f"Metric '{metric_name}' not found. Available metrics: {available}")
+            raise KeyError(f"Metric '{metric_name}' not found. {_metric_hint(metric_name, available)}")
         return self.metrics[metric_name]
 
     def _to_dict(self) -> Dict[str, Any]:
@@ -325,7 +332,11 @@ class BacktestResults:
             name for name, result in self._strategies.items() if metric not in result.metrics
         ]
         if missing:
-            raise KeyError(f"Metric '{metric}' is missing for strategies: {missing}")
+            available = sorted({key for result in self._strategies.values() for key in result.metrics})
+            raise KeyError(
+                f"Metric '{metric}' is missing for strategies: {missing}. "
+                f"{_metric_hint(metric, available)}"
+            )
 
     def plot_comparison(self, include_benchmark: bool = True):
         """Plot equity curves for all strategies.

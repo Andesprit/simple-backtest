@@ -13,7 +13,7 @@ from simple_backtest import (
     MovingAverageStrategy,
     Strategy,
 )
-from simple_backtest.utils.validation import StrategyError
+from simple_backtest.utils.validation import StrategyError, StrategyExecutionError
 
 
 @pytest.fixture
@@ -98,6 +98,47 @@ def test_dca_explains_exhausted_cash_after_earlier_fills(sample_data):
     assert "initial_capital" in result.summary()
     assert "investment_amount" in result.summary()
     assert result.errors == []
+
+
+@pytest.mark.parametrize("policy", ["raise", "continue"])
+def test_feedback_missing_prediction_column(sample_data, policy):
+    class BadColumn(Strategy):
+        def predict(self, data, trade_history):
+            data["close"]
+            return self.hold()
+
+    config = BacktestConfig(lookback_period=30, error_policy=policy, parallel_execution=False)
+    backtest = Backtest(sample_data.head(33), config)
+    if policy == "raise":
+        with pytest.raises(StrategyExecutionError) as caught:
+            backtest.run([BadColumn()])
+        assert isinstance(caught.value.cause, KeyError)
+        assert caught.value.cause.args == ("close",)
+        messages = [str(caught.value)]
+    else:
+        result = backtest.run([BadColumn()]).get_strategy("BadColumn")
+        assert len(result.errors) == 3
+        assert result.trade_history == []
+        messages = [error["message"] for error in result.errors]
+    for message in messages:
+        assert "'close'" in message
+        assert "'Close'" in message
+        assert "Available columns" in message
+        assert "case-sensitive" in message
+
+
+@pytest.mark.parametrize("prediction", [None, "buy"])
+def test_feedback_bad_prediction_keeps_continue_diagnostics(sample_data, prediction):
+    class BadReturn(Strategy):
+        def predict(self, data, trade_history):
+            return prediction
+
+    config = BacktestConfig(lookback_period=30, error_policy="continue", parallel_execution=False)
+    result = Backtest(sample_data.head(33), config).run([BadReturn()]).get_strategy("BadReturn")
+    assert len(result.errors) == 3
+    assert result.trade_history == []
+    assert all(error["error_type"] == "AttributeError" for error in result.errors)
+    assert all("self.hold()" in error["message"] for error in result.errors)
 
 
 class TestFullBacktestWorkflow:

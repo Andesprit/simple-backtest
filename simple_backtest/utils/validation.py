@@ -48,19 +48,21 @@ class StrategyExecutionError(StrategyError, RuntimeError):
         timestamp: datetime,
         stage: str,
         cause: Exception,
+        hint: str = "",
     ) -> None:
         self.strategy_name = strategy_name
         self.timestamp = timestamp
         self.stage = stage
         self.cause = cause
-        super().__init__(f"Strategy '{strategy_name}' {stage} failed at {timestamp}: {cause}")
+        self.hint = hint
+        super().__init__(f"Strategy '{strategy_name}' {stage} failed at {timestamp}: {cause}{hint}")
 
     def __reduce__(self):
         """Preserve contextual constructor arguments across worker processes."""
         serialized_cause = RuntimeError(f"{type(self.cause).__name__}: {self.cause}")
         return (
             type(self),
-            (self.strategy_name, self.timestamp, self.stage, serialized_cause),
+            (self.strategy_name, self.timestamp, self.stage, serialized_cause, self.hint),
         )
 
 
@@ -436,15 +438,35 @@ def validate_strategies(strategies: List[Strategy], lookback_period: int | None 
     :param strategies: List of strategies to validate
     :param lookback_period: Maximum history rows supplied to each strategy
     """
+    if isinstance(strategies, Strategy):
+        raise TypeError("Pass a list of strategy instances: backtest.run([strategy]).")
+    if isinstance(strategies, type) and issubclass(strategies, Strategy):
+        raise TypeError(
+            f"Pass a list containing an instance: backtest.run([{strategies.__name__}(...)])."
+        )
     if not strategies:
         raise StrategyError("Must provide at least one strategy")
 
     for i, strategy in enumerate(strategies):
+        if isinstance(strategy, type) and issubclass(strategy, Strategy):
+            raise StrategyError(
+                f"Strategy at index {i} is a class. Create an instance with "
+                f"{strategy.__name__}(...) and pass it in a list to run()."
+            )
         # Check inherits from base Strategy
         if not isinstance(strategy, Strategy):
             raise StrategyError(
                 f"Strategy at index {i} does not inherit from base Strategy class. "
                 f"Got type: {type(strategy)}"
+            )
+
+        if not all(
+            hasattr(strategy, attribute)
+            for attribute in ("_name", "_portfolio_state", "_random_seed", "rng")
+        ):
+            raise AttributeError(
+                f"{type(strategy).__name__} is missing Strategy initialization. "
+                "Call super().__init__() from your strategy's __init__()."
             )
 
         # Check has predict method
