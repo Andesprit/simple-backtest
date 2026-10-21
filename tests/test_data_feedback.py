@@ -58,6 +58,11 @@ def test_combined_structure_gap_and_sort_advice_works_in_one_fix(prices, date_na
         assert repr(adj_name) + ": 'Close'" in message
         assert "unadjusted" in message and "Open/High/Low" in message
     fixed = apply_fix(caught.value, source)
+    if adj_name:
+        # This fixture already has consistent OHLC; apply the explicitly conditional rename.
+        assert adj_name in fixed.columns and "Close" not in fixed.columns
+        assert "only if Open/High/Low are already adjusted" in message
+        fixed = fixed.rename(columns={adj_name: "Close"})
     result = Backtest(fixed, BacktestConfig(lookback_period=10, parallel_execution=False)).run(
         [BuyAndHoldStrategy(shares=1)]
     )
@@ -73,7 +78,7 @@ def test_nan_dates_are_reported_per_column_and_leading_gap_fix_works(prices):
     message = str(caught.value)
     assert "2023-01-01" in message and "2023-01-21" in message
     assert "Close" in message and "Open" in message
-    assert "df.ffill()" in message and "df.dropna()" in message
+    assert ".ffill()" not in message and ".dropna(subset=" in message
     fixed = apply_fix(caught.value, prices)
     validate_dataframe(fixed)
 
@@ -144,6 +149,9 @@ def test_combined_fix_uses_original_lowercase_frame(prices, adj_close):
     with pytest.raises(DataValidationError) as caught:
         validate_dataframe(source)
     fixed = apply_fix(caught.value, source)
+    if adj_close:
+        assert "adj close" in fixed.columns and "Close" not in fixed.columns
+        fixed = fixed.rename(columns={"adj close": "Close"})
     Backtest(fixed, BacktestConfig(lookback_period=10, parallel_execution=False))
 
 
@@ -199,6 +207,7 @@ def test_adjusted_close_error_explains_missing_raw_prices(prices):
     assert "supply unadjusted Close" in message
     assert "supply consistently adjusted OHLC" in message
     assert "cannot recover" in message and "adjustment factor" in message
+    assert "column-wise" not in message
 
 
 def test_ohlc_warning_has_same_diagnostics_and_does_not_change_prices(prices):
@@ -216,3 +225,117 @@ def test_both_close_series_use_raw_close_without_adjustment(prices):
     prices["Adj Close"] = prices["Close"] * 0.8
     normalized = validate_dataframe(prices)
     pd.testing.assert_frame_equal(normalized, prices)
+
+
+@pytest.fixture
+def trending_prices():
+    close = pd.Series([100.0 + 2 * i for i in range(120)],
+                      index=pd.bdate_range("2023-01-02", periods=120, name="Date"))
+    return pd.DataFrame({"Open": close, "High": close * 1.001, "Low": close * 0.999,
+                         "Close": close, "Volume": 1e6})
+
+
+@pytest.mark.parametrize("lowercase", [False, True])
+def test_partial_gap_suggested_fix_reaches_result_in_one_step(trending_prices, lowercase):
+    source = trending_prices.copy()
+    source.loc[source.index[30], "Close"] = float("nan")
+    source.loc[source.index[31], "Open"] = float("nan")
+    source["Adj Close"] = source["Close"] * 0.98
+    if lowercase:
+        source = source.rename(columns=str.lower)
+    source = source.iloc[::-1].reset_index()
+    original = source.copy(deep=True)
+    with pytest.raises(DataValidationError) as caught:
+        validate_dataframe(source)
+    assert ".ffill()" not in str(caught.value)
+    assert "partly missing" in str(caught.value)
+    fixed = apply_fix(caught.value, source)
+    result = Backtest(fixed, BacktestConfig(parallel_execution=False)).run(
+        [BuyAndHoldStrategy(shares=1)]
+    )
+    assert len(fixed) == 118 and result.get_strategy("BuyAndHold").trade_history
+    pd.testing.assert_frame_equal(source, original)
+
+
+def test_whole_price_gap_fix_preserves_consistent_bars(trending_prices):
+    source = trending_prices.copy()
+    source.iloc[[0, 30], :4] = float("nan")
+    with pytest.raises(DataValidationError) as caught:
+        validate_dataframe(source)
+    message = str(caught.value)
+    assert ".ffill()" in message and "all OHLC prices" in message
+    fixed = apply_fix(caught.value, source)
+    validate_dataframe(fixed)
+    assert len(fixed) == 119
+    pd.testing.assert_series_equal(fixed.iloc[29, :4], source.iloc[29, :4], check_names=False)
+
+
+def test_adj_close_only_error_does_not_offer_unconditional_rename(trending_prices):
+    source = trending_prices.drop(columns="Close").assign(
+        **{"Adj Close": trending_prices["Close"] * 0.98}
+    ).reset_index()
+    with pytest.raises(DataValidationError) as caught:
+        validate_dataframe(source)
+    message = str(caught.value)
+    assert "probably unadjusted" in message
+    assert "supply unadjusted Close" in message and "supply consistently adjusted OHLC" in message
+    assert "Adj Close below Low: 120 rows" in message and "2023-01-02" in message
+    assert "cannot recover" in message
+    assert "only if Open/High/Low are already adjusted" in message
+    preprocessed = apply_fix(caught.value, source)
+    assert isinstance(preprocessed.index, pd.DatetimeIndex)
+    assert "Adj Close" in preprocessed and "Close" not in preprocessed
+    # The provider supplies raw Close; the already-suggested date fix needs no retry.
+    fixed = preprocessed.assign(Close=trending_prices["Close"])
+    Backtest(fixed, BacktestConfig(parallel_execution=False)).run([BuyAndHoldStrategy(shares=1)])
+
+
+def test_both_close_csv_fix_retains_raw_prices(trending_prices):
+    source = trending_prices.assign(**{"Adj Close": trending_prices["Close"] * 0.98}).reset_index()
+    with pytest.raises(DataValidationError) as caught:
+        validate_dataframe(source)
+    message = str(caught.value)
+    assert "rename" not in message and "adjust" not in message
+    fixed = apply_fix(caught.value, source)
+    pd.testing.assert_series_equal(fixed["Close"], trending_prices["Close"], check_freq=False)
+    Backtest(fixed, BacktestConfig(parallel_execution=False)).run([BuyAndHoldStrategy(shares=1)])
+
+
+@pytest.mark.parametrize("with_adj_close", [False, True])
+def test_isolated_ohlc_violations_do_not_suggest_mixed_prices(trending_prices, with_adj_close):
+    source = trending_prices.copy()
+    if with_adj_close:
+        source["Adj Close"] = source["Close"] * 0.98
+    source.loc[source.index[30], "Close"] = source.iloc[29]["Close"]
+    source.loc[source.index[31], "Open"] = source.iloc[30]["Open"]
+    with pytest.raises(DataValidationError) as caught:
+        validate_dataframe(source)
+    message = str(caught.value)
+    assert "2 rows with invalid OHLC" in message and "column-wise" in message
+    assert "unadjusted" not in message
+
+
+def test_copied_adjusted_close_supports_hint_even_for_isolated_rows(trending_prices):
+    source = trending_prices.assign(**{"Adj Close": trending_prices["Close"] * 0.98})
+    source.loc[source.index[30], "Close"] = source.iloc[30]["Adj Close"]
+    with pytest.raises(DataValidationError) as caught:
+        validate_dataframe(source)
+    assert "unadjusted Open/High/Low" in str(caught.value)
+
+
+def test_partial_gap_with_adj_close_only_preprocesses_existing_columns(trending_prices):
+    source = trending_prices.rename(columns={"Close": "adj close"}).rename(columns=str.lower)
+    source.loc[source.index[30], "open"] = float("nan")
+    source = source.reset_index()
+    with pytest.raises(DataValidationError) as caught:
+        validate_dataframe(source)
+    fixed = apply_fix(caught.value, source)
+    assert len(fixed) == 119 and "adj close" in fixed and "Close" not in fixed
+    # This fixture's OHLC prices already share one basis, so its conditional rename is valid.
+    validate_dataframe(fixed.rename(columns={"adj close": "Close"}))
+
+
+def test_invalid_adj_close_strings_still_get_missing_close_error(prices):
+    source = prices.drop(columns="Close").assign(**{"Adj Close": "bad"})
+    with pytest.raises(DataValidationError, match="Missing required columns"):
+        validate_dataframe(source)

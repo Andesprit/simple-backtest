@@ -157,8 +157,8 @@ def validate_dataframe(
             f"Expected pandas DataFrame, got {type(data).__name__}. "
             "Load the CSV yourself (replace 'Date' with your date column).\n"
             "→ Fix:\n"
-            f"  df = pd.read_csv({path}, index_col='Date', parse_dates=True).sort_index().ffill().dropna()\n"
-            "Review gaps before using df.ffill(); use df.dropna() to omit missing bars instead. "
+            f"  df = pd.read_csv({path}, index_col='Date', parse_dates=True).sort_index().dropna()\n"
+            "This omits incomplete bars; review gaps before dropping them. "
             "Open/High/Low/Close are required; OHLCV names are case-insensitive."
         )
 
@@ -245,12 +245,28 @@ def validate_dataframe(
             f"Required columns: {required_columns}. Your columns: {list(data.columns)}."
         )
         if adj_close is not None:
-            fix += f".rename(columns={{{adj_close!r}: 'Close'}})"
             problems.append(
-                f"Rename {adj_close!r} to 'Close' only if this is the price series you intend. "
-                "Open/High/Low remain unadjusted by this rename; use consistently adjusted OHLC "
-                "to avoid mixing adjusted Close with unadjusted prices."
+                f"{adj_close!r} is an adjusted closing price; Open/High/Low are probably unadjusted. "
+                "Choose one price basis: supply unadjusted Close, or supply consistently adjusted OHLC "
+                "from your data provider. Renaming alone cannot recover raw Close or adjustment factors.\n"
+                "Only rename after preprocessing, and only if Open/High/Low are already adjusted: "
+                f"df = df.rename(columns={{{adj_close!r}: 'Close'}})"
             )
+            if all(
+                col in data and pd.api.types.is_numeric_dtype(data[col])
+                for col in (adj_close, "High", "Low")
+            ):
+                for rule, mask in (
+                    (f"{adj_close} below Low", data[adj_close] < data["Low"]),
+                    (f"{adj_close} above High", data[adj_close] > data["High"]),
+                ):
+                    if mask.any():
+                        first_dates = [str(date) for date in dates[mask.to_numpy()][:3]]
+                        problems.append(
+                            f"A rename would break the Close range rule: {rule}: {mask.sum()} rows; "
+                            f"first dates (up to 3): {first_dates}."
+                        )
+            problems.append("The fix line below only preprocesses data; it does not supply missing Close.")
         if any(col != "Close" or adj_close is None for col in missing_columns):
             problems.append(
                 "Supply the missing OHLCV columns or rename the corresponding source columns before running again."
@@ -268,13 +284,22 @@ def validate_dataframe(
             f"NaN counts: {missing_counts[missing_counts > 0].to_dict()}. "
             f"First missing dates per column (up to 3): {locations}."
         )
-        fixed_nan_columns = ["Close" if col == adj_close else col for col in nan_columns]
-        fix += f".ffill().dropna(subset={fixed_nan_columns!r})"
-        problems.append(
-            "Review gaps before using df.ffill(); it assumes the previous value is valid. "
-            "The final dropna removes leading gaps that cannot be forward-filled. "
-            "Alternatively, use df.dropna() to omit missing bars."
-        )
+        gap_rows = data[available].isna().any(axis=1)
+        price_columns = [col for col in available if col != "Volume"]
+        whole_price_gaps = data[price_columns].isna().all(axis=1)[gap_rows].all()
+        if whole_price_gaps:
+            fix += ".ffill()"
+            problems.append(
+                "Every gap row is missing all OHLC prices: forward-fill only if carrying the "
+                "previous bar is appropriate; the final dropna removes unfillable leading gaps. "
+                "Alternatively, omit incomplete bars with dropna instead."
+            )
+        else:
+            problems.append(
+                "Some bars are only partly missing: omit incomplete bars with dropna rather than "
+                "filling individual prices outside that day's High/Low range; review the omitted dates."
+            )
+        fix += f".dropna(subset={available!r})"
     if problems:
         message = "\n".join(problems) + f"\n→ Fix:\n  df = {fix}"
         if strict or missing_columns:
@@ -348,19 +373,28 @@ def validate_dataframe(
             if mask.any():
                 first_dates = [str(date) for date in data.index[mask][:3]]
                 details.append(f"  {rule}: {mask.sum()} rows; dates: {first_dates}.")
-        if broken_rules[["Close below Low", "Close above High"]].any().any():
+        close_outside = broken_rules[["Close below Low", "Close above High"]].any(axis=1)
+        copied_adjusted_close = any(
+            isinstance(col, str)
+            and col.casefold() == "adj close"
+            and (data["Close"].eq(data[col]) & close_outside).any()
+            for col in data.columns
+        )
+        if close_outside.mean() > 0.5 or copied_adjusted_close:
             details.append(
                 "If Close came from 'Adj Close', it may be mixed with unadjusted Open/High/Low. "
                 "In that case, supply unadjusted Close, or supply consistently adjusted OHLC "
                 "from your data provider. Renaming alone cannot recover the missing raw Close "
                 "or adjustment factors."
             )
-        details.append(
-            "Check these rows against your source data and correct the prices. "
-            "If this followed a column-wise fill, reload the original data and consider "
-            "omitting incomplete bars with df.dropna(subset=['Open', 'High', 'Low', 'Close']); "
-            "filling individual prices can place them outside that day's High/Low range."
-        )
+        details.append("Check these rows against your source data and correct the prices.")
+        if invalid_ohlc.mean() <= 0.1:
+            details.append(
+                "Only a few rows fail. If this followed a column-wise fill, reload the original "
+                "data and consider omitting incomplete bars with "
+                "df.dropna(subset=['Open', 'High', 'Low', 'Close']); filling individual prices "
+                "can place them outside that day's High/Low range."
+            )
         message = "\n".join(details)
         if strict:
             raise DataValidationError(message)

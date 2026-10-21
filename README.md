@@ -163,11 +163,17 @@ data = pd.read_csv("prices.csv", index_col="Date", parse_dates=True)
 ```
 
 The engine accepts OHLCV names in any capitalization on an internal copy. It
-requires sorted dates, positive numeric OHLC prices and no missing prices. Review
-gaps before choosing `data.ffill()` (carry the previous value forward) or
-`data.dropna()` (omit incomplete bars); sort dates before forward-filling.
-If your only closing-price column is `Adj Close`, renaming it to `Close` does not
-adjust Open/High/Low. Use consistently adjusted OHLC to avoid mixing price bases.
+requires sorted dates, positive numeric OHLC prices and no missing prices. For
+partly missing bars, review and omit incomplete rows with
+`data.dropna(subset=['Open', 'High', 'Low', 'Close'])`; filling individual prices
+can put them outside that day's High/Low range. If every gap row is missing all
+four prices, you may choose `data.sort_index().ffill().dropna(subset=['Open', 'High', 'Low', 'Close'])`
+to carry whole bars forward instead, after reviewing whether that assumption is appropriate.
+If your only closing-price column is `Adj Close`, supply unadjusted `Close` or
+consistently adjusted OHLC from your provider. Rename `Adj Close` to `Close` only
+when Open/High/Low are already adjusted to the same basis; a rename cannot recover
+missing raw prices or adjustment factors. When both closing-price columns are
+present, the engine uses `Close` unchanged.
 `validate_dataframe(data)` returns a normalized copy and leaves `data` unchanged.
 
 ## 📚 Documentation
