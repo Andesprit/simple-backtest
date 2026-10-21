@@ -419,6 +419,28 @@ choosing parameters: with repeats, `best_result` is the single best in-sample
 trial, and `print(optimizer)` names its trial and seed. `optimizer.summary` reports attempted evaluations, unique
 candidates, failures, and excluded undefined objectives.
 
+To see the evidence behind the winner, group the trials per tested combination
+(no new simulations):
+
+```python
+summary = optimizer.trial_summary()  # One row per tested combination
+print(summary)                       # attempted/defined/undefined/failed, <metric>_min/_median/_max
+optimizer.plot_trials().show()       # Every observed trial per combination; star = selected trial
+```
+
+For example, a strategy that wins big in 1 of 4 seeds can rank first
+(`total_return_max` 2.41%) while its `total_return_median` is 0%, next to a
+steady combination at 0.48% in every repeat. `contains_selected` marks the
+combination holding the winning trial and `selected_trial` names that single
+trial; the aggregates never pick a different winner. Failed and undefined
+evaluations keep their rows and a `note` (also after a search where every
+candidate failed). Values are in-sample observations in the objective's units
+(`summary.attrs["trial_summary"]` gives unit and direction), not a robustness
+estimate. The full per-trial rows stay in the ranked DataFrame, failures in
+`optimizer.failures`, and the winning run in `optimizer.best_result`.
+Combinations are grouped as the search deduplicated them, so values that
+compare equal (such as `1`, `1.0` and `True`) count as one.
+
 `WalkForwardOptimizer.optimize()` still returns a chronological DataFrame.
 It has no single winner: `best_result` points you to `optimizer.report`.
 Use `optimize_report()` for selected parameters, strategy and benchmark equity,

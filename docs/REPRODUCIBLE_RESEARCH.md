@@ -55,6 +55,12 @@ print(search)  # Objective, selected trial and seed, counts
 best = search.best_result  # The selected trial's own run, not a re-simulation
 assert best.metadata["random_seed"] == ranked.loc[0, "simulation_seed"]
 print(best, search.best_parameters)
+trials = search.trial_summary()  # Per-combination counts and observed min/median/max
+assert trials["attempted"].sum() == search.summary["attempted_evaluations"]
+assert trials["contains_selected"].sum() == 1  # Holds the selected trial; not a new winner
+print(trials[["probability", "attempted", "defined", "total_return_min",
+              "total_return_median", "total_return_max", "selected_trial"]])
+figure = search.plot_trials()  # Plotly Figure of every observed trial, star = selected trial
 search.export_json(ranked, "search.json")
 
 walk_forward = WalkForwardOptimizer(train_size=0.5, n_splits=3, verbose=False)
@@ -86,6 +92,12 @@ robustness estimate. Replay it with
 `RandomRebalance(**search.best_parameters)`. When `optimize` returns an empty
 DataFrame, `print(search)` explains why (undefined objective or failed
 candidates) and suggests a retry such as `metric="total_return"`.
+`search.trial_summary()` groups the same evaluations per tested combination,
+including failed and undefined ones, so you can compare the selected trial with
+the typical observation (median) and the spread of its repeats. These are
+in-sample observations, not a robustness estimate or a replacement selection
+rule; for out-of-sample evidence use walk-forward, which has no global
+`trial_summary()` and points you to its per-fold report instead.
 
 Result metadata includes copied configuration, strategy class and constructor
 parameters, package/Python/NumPy/pandas versions, seed, input-data fingerprint,
