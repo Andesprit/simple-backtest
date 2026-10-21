@@ -329,6 +329,33 @@ a sizing hint), or it raised errors (full details stay in `result.errors`). If
 the price data misses some backtest dates, the chart title says so; if it covers
 none of them, `plot_trades` raises a `ValueError`.
 
+### Sharing a Report
+
+Write everything above into one HTML file that opens offline in any browser,
+without Python:
+
+```python
+results.export_html("report.html", price_data=data)  # Returns the written path
+```
+
+The report has the comparison table and verdict, what to check for each
+strategy (no orders, rejected orders, errors), its key metrics and first fills,
+the equity and drawdown chart, one trade chart per strategy, and the recorded
+assumptions: capital, input and trading dates, execution price, costs, seed and
+data fingerprint. Values that differ between strategies are listed per strategy;
+a value an older result never recorded shows as "not recorded".
+`price_data` is optional: without it the report skips the trade charts and says
+how to add them. A single result works the same way, for example
+`optimizer.best_result.export_html("best.html", price_data=data)`.
+
+The tables are plain HTML, so the answers stay readable even if the charts do
+not load. Exporting never re-runs a strategy. Long error messages and long
+fill lists are shortened; `results.export_json(path)` keeps every record. The
+file embeds the Plotly chart library once (about 4.8 MB), so it needs no
+internet connection; each extra chart adds only its data (tens of KB here).
+The numbers are simulated on your data, not a forecast; a run picked by a
+parameter search is in-sample.
+
 ### Parameter Optimization
 
 Find strategy parameters with a built-in optimizer, then inspect the run that won:
@@ -357,7 +384,7 @@ print(results.head(5))         # Ranked candidates, best first
 
 print(optimizer)               # Objective, winner, score, and evaluated/failed counts
 best = optimizer.best_result   # The winning run itself, not a new simulation
-print(best)                    # Also best.plot_trades(data), best.trade_history
+print(best)                    # Also best.plot_trades(data), best.export_html("best.html", price_data=data)
 optimizer.best_parameters      # {'short_window': ..., 'long_window': ..., 'shares': 10}
 ```
 
