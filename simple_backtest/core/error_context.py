@@ -161,6 +161,8 @@ def _price_lines(result, stage, t, price_data, context_bars: int) -> List[str]:
 
     metadata = result._metadata
     lookback = (metadata.get("config") or {}).get("lookback_period")
+    if isinstance(lookback, bool) or not isinstance(lookback, int) or lookback < 1:
+        lookback = None  # without it the rows predict() saw are unknown
     recorded = (metadata.get("data") or {}).get("fingerprint")
     if recorded is None:
         exact, check = False, "not verified: this result has no recorded data fingerprint"
@@ -176,10 +178,13 @@ def _price_lines(result, stage, t, price_data, context_bars: int) -> List[str]:
     count = min(context_bars, lookback) if isinstance(lookback, int) else context_bars
     prior = data.iloc[max(0, position - count) : position]
     columns = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in data.columns]
-    if exact and lookback is not None:
+    exact = exact and lookback is not None
+    if exact:
         shown = f"last {len(prior)} of the {lookback} bars of recorded lookback"
     else:
-        shown = f"{len(prior)} bars before the error"
+        shown = f"{len(prior)} bars before the error" + (
+            "; lookback not recorded" if lookback is None else ""
+        )
     lines = [f"Supplied prices: {check}."]
     if exact and stage == "prediction":
         lines.append(f"Bars before {t} ({shown}; predict() saw these rows):")

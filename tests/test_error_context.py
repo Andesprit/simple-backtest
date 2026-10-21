@@ -309,3 +309,14 @@ def test_readme_error_inspection_example_runs():
     with mock.patch("builtins.print"):
         exec(compile(code, "README.md error inspection", "exec"), namespace)
     assert namespace["raw"]["source"]["function"] == "predict"
+
+
+def test_matching_prices_without_recorded_lookback_are_not_called_predict_input(broken):
+    data = prices()
+    i = stage_index(broken, "prediction")
+    record = deepcopy(broken._to_dict())
+    record["metadata"].pop("config")
+    text = StrategyResult("Broken", record).explain_error(i, price_data=data, context_bars=8)
+    assert "predict() saw these rows" not in text
+    assert "lookback not recorded" in text and "not proven to be what the strategy saw" in text
+    assert "last 5 of the 5 bars" in broken.explain_error(i, price_data=data, context_bars=8)
