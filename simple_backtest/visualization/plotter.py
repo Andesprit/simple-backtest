@@ -1,6 +1,8 @@
 """Interactive visualization suite using Plotly."""
 
+from collections.abc import Mapping
 from html import escape
+from numbers import Real
 from textwrap import wrap
 from typing import Any, Dict
 
@@ -48,6 +50,7 @@ def _convert_results_to_dict(results) -> Dict[str, Dict[str, Any]]:
                 "metrics": strategy_result.metrics,
                 "errors": strategy_result.errors,
                 "order_outcomes": strategy_result.order_outcomes,
+                "metadata": strategy_result.metadata,
             }
         if results.benchmark:
             results_dict["benchmark"] = {
@@ -55,6 +58,7 @@ def _convert_results_to_dict(results) -> Dict[str, Dict[str, Any]]:
                 "trade_history": results.benchmark.trade_history,
                 "returns": results.benchmark.returns,
                 "metrics": results.benchmark.metrics,
+                "metadata": results.benchmark.metadata,
             }
         return results_dict
 
@@ -227,7 +231,7 @@ def plot_returns_distribution(results) -> go.Figure:
                 opacity=0.7,
                 nbinsx=50,
                 hovertemplate="<b>%{fullData.name}</b><br>"
-                + "Return: %{x:.2f}%<br>"
+                + "Return per bar: %{x:.2f}%<br>"
                 + "Count: %{y}<br>"
                 + "<extra></extra>",
             )
@@ -235,7 +239,7 @@ def plot_returns_distribution(results) -> go.Figure:
 
     fig.update_layout(
         title="Returns Distribution",
-        xaxis_title="Daily Return (%)",
+        xaxis_title="Return per bar (%)",
         yaxis_title="Frequency",
         template="plotly_white",
         height=400,
@@ -381,12 +385,86 @@ def plot_trades(results) -> Dict[str, go.Figure]:
     return figures
 
 
+# Compatible defaults for results that do not record their own risk assumptions.
+FALLBACK_PERIODS_PER_YEAR = 252
+FALLBACK_RISK_FREE_RATE = 0.0
+
+
+def _recorded_number(name: str, field: str, value, valid, expected: str):
+    """Return a recorded numeric assumption, None when absent, or raise if it is invalid."""
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, Real)
+        or not np.isfinite(value)
+        or not valid(value)
+    ):
+        raise ValueError(
+            f"{name}: recorded {field}={repr(value)[:40]} is invalid; expected {expected}. "
+            f"Correct or remove it in the result metadata."
+        )
+    return float(value)
+
+
+def _risk_assumptions(name: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve one run's annualization and annual risk-free rate for rolling metrics.
+
+    Each field comes from the run's recorded metadata when present; a missing field
+    falls back to 252 periods/year or a 0% target and is marked as assumed.
+    """
+    metadata = result.get("metadata")
+    metadata = metadata if isinstance(metadata, Mapping) else {}
+    config = metadata.get("config")
+    config = config if isinstance(config, Mapping) else {}
+    periods = _recorded_number(
+        name,
+        "periods_per_year",
+        metadata.get("periods_per_year"),
+        lambda value: value > 0,
+        "a finite positive number",
+    )
+    risk_free = _recorded_number(
+        name,
+        "risk_free_rate",
+        config.get("risk_free_rate"),
+        lambda value: value > -1,
+        "a finite annual rate above -1",
+    )
+    return {
+        "periods": FALLBACK_PERIODS_PER_YEAR if periods is None else periods,
+        "periods_recorded": periods is not None,
+        "risk_free": FALLBACK_RISK_FREE_RATE if risk_free is None else risk_free,
+        "risk_free_recorded": risk_free is not None,
+    }
+
+
+def _assumption_text(assumptions: Dict[str, Any]) -> str:
+    periods = "recorded" if assumptions["periods_recorded"] else "assumed"
+    risk_free = "recorded" if assumptions["risk_free_recorded"] else "assumed"
+    return (
+        f"{assumptions['periods']:g} periods/year ({periods}), "
+        f"risk-free {assumptions['risk_free']:.2%}/year ({risk_free})"
+    )
+
+
+def _named(names: list[str]) -> str:
+    shown = ", ".join(escape(name) for name in names[:3])
+    return shown + (f" and {len(names) - 3} more" if len(names) > 3 else "")
+
+
 def plot_rolling_metrics(results, window: int = 30) -> go.Figure:
-    """Plot rolling Sharpe and Sortino ratios.
+    """Plot rolling annualized Sharpe ratio and volatility over a window of bars.
+
+    Each run uses its own recorded ``periods_per_year`` and annual
+    ``config.risk_free_rate`` from result metadata, as the result's metrics do.
+    A run without them uses 252 periods/year and a 0% target; the note below the
+    chart marks those values as assumed. A window whose returns do not vary has
+    a Sharpe ratio of 0. No value is shown before a window has ``window`` returns.
 
     Args:
         results: BacktestResults object or dictionary mapping strategy names to result dictionaries
-        window: Rolling window size
+        window: Rolling window size in bars (return observations)
 
     Returns:
         Plotly Figure with rolling metrics
@@ -395,21 +473,37 @@ def plot_rolling_metrics(results, window: int = 30) -> go.Figure:
     fig = make_subplots(
         rows=2,
         cols=1,
-        subplot_titles=("Rolling Sharpe Ratio", "Rolling Volatility"),
+        subplot_titles=("Rolling Sharpe Ratio (annualized)", "Rolling Volatility (annualized %)"),
         vertical_spacing=0.15,
     )
 
+    groups: Dict[str, list[str]] = {}
+    too_short = []
     for i, (name, result) in enumerate(results.items()):
         returns = result["returns"]
         color = COLORS[i % len(COLORS)]
+        assumptions = _risk_assumptions(name, result)
+        periods = assumptions["periods"]
+        described = _assumption_text(assumptions)
+        groups.setdefault(described, []).append(name)
+        if len(returns) < window:
+            too_short.append(name)
 
-        # Rolling Sharpe
-        rolling_sharpe = (returns.rolling(window).mean() / returns.rolling(window).std()) * np.sqrt(
-            252
+        # Same definitions as calculate_sharpe_ratio and calculate_volatility per window.
+        period_risk_free = (1 + assumptions["risk_free"]) ** (1 / periods) - 1
+        excess = (returns - period_risk_free).rolling(window)
+        excess_std = excess.std()
+        rolling_sharpe = (
+            (excess.mean() / excess_std * np.sqrt(periods))
+            .where(excess_std != 0, 0.0)
+            .where(excess_std.notna())
         )
+        rolling_vol = returns.rolling(window).std() * np.sqrt(periods) * 100
 
-        # Rolling Volatility
-        rolling_vol = returns.rolling(window).std() * np.sqrt(252) * 100
+        hover = (
+            f"<b>{escape(name)}</b><br>{{label}}: %{{y:.2f}}<br>"
+            f"{window}-bar window, {escape(described)}<extra></extra>"
+        )
 
         # Sharpe subplot
         fig.add_trace(
@@ -420,6 +514,7 @@ def plot_rolling_metrics(results, window: int = 30) -> go.Figure:
                 name=f"{name} (Sharpe)",
                 line=dict(color=color, width=2),
                 legendgroup=name,
+                hovertemplate=hover.replace("{label}", "Sharpe"),
             ),
             row=1,
             col=1,
@@ -435,19 +530,43 @@ def plot_rolling_metrics(results, window: int = 30) -> go.Figure:
                 line=dict(color=color, width=2),
                 legendgroup=name,
                 showlegend=False,
+                hovertemplate=hover.replace("{label}", "Volatility %"),
             ),
             row=2,
             col=1,
         )
 
+    note_lines = [f"{_named(names)}: {escape(text)}" for text, names in groups.items()][:5]
+    if len(groups) > 5:
+        note_lines.append(f"{len(groups) - 5} more assumption sets; hover a line to see its own.")
+    if too_short:
+        note_lines.append(
+            f"Fewer than {window} returns, so no rolling values: {_named(too_short)}."
+        )
+
     fig.update_xaxes(title_text="Date", row=2, col=1)
     fig.update_yaxes(title_text="Sharpe Ratio", row=1, col=1)
     fig.update_yaxes(title_text="Volatility (%)", row=2, col=1)
+    if note_lines:
+        fig.add_annotation(
+            text="<br>".join(note_lines),
+            xref="paper",
+            yref="paper",
+            x=0,
+            y=0,
+            yshift=-50,
+            xanchor="left",
+            yanchor="top",
+            align="left",
+            showarrow=False,
+            font=dict(size=12),
+        )
 
     fig.update_layout(
-        title=f"Rolling Metrics ({window}-day window)",
+        title=f"Rolling Metrics ({window}-bar window)",
         template="plotly_white",
-        height=700,
+        height=700 + 18 * len(note_lines),
+        margin=dict(b=80 + 18 * len(note_lines)),
         hovermode="x unified",
     )
 

@@ -329,6 +329,24 @@ a sizing hint), or it raised errors (full details stay in `result.errors`). If
 the price data misses some backtest dates, the chart title says so; if it covers
 none of them, `plot_trades` raises a `ValueError`.
 
+Rolling risk and the return histogram use the same assumptions as the printed
+metrics:
+
+```python
+from simple_backtest.visualization import plot_returns_distribution, plot_rolling_metrics
+
+plot_rolling_metrics(results, window=30).show()  # Window = 30 bars, not 30 days
+plot_returns_distribution(results).show()        # Return per bar (%)
+```
+
+Each run's Sharpe and volatility are annualized with its recorded
+`periods_per_year` and annual `risk_free_rate` (see `result.metadata`), so an
+hourly, daily and monthly run can share one chart. The note below the chart and
+the hover text show each run's values. A result dictionary without recorded
+values uses 252 periods/year and a 0% target, marked "assumed". A window whose
+returns do not vary has a Sharpe ratio of 0, and a run with fewer returns than
+the window has no rolling line; the note names it.
+
 ### Sharing a Report
 
 Write everything above into one HTML file that opens offline in any browser,
