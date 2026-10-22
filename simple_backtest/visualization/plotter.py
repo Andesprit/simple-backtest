@@ -136,7 +136,6 @@ def plot_equity_curve(results, show_drawdown: bool = False) -> go.Figure:
         hovermode="x unified",
         template="plotly_white",
         height=700 if show_drawdown else 500,
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
     )
     fig.update_xaxes(
         title_text="Date", row=2 if show_drawdown else None, col=1 if show_drawdown else None
@@ -186,7 +185,6 @@ def plot_drawdowns(results) -> go.Figure:
                 name=name,
                 line=line_style,
                 fill=fill,
-                fillcolor=color if name != "benchmark" else None,
                 hovertemplate="<b>%{fullData.name}</b><br>"
                 + "Date: %{x}<br>"
                 + "Drawdown: %{y:.2f}%<br>"
@@ -201,7 +199,6 @@ def plot_drawdowns(results) -> go.Figure:
         hovermode="x unified",
         template="plotly_white",
         height=400,
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
     )
 
     return fig
@@ -230,6 +227,7 @@ def plot_returns_distribution(results) -> go.Figure:
                 marker_color=color,
                 opacity=0.7,
                 nbinsx=50,
+                bingroup="returns",  # same bin edges for every run, so counts compare
                 hovertemplate="<b>%{fullData.name}</b><br>"
                 + "Return per bar: %{x:.2f}%<br>"
                 + "Count: %{y}<br>"
@@ -698,11 +696,16 @@ def _run_notes(name: str, result: Dict[str, Any]) -> list[str]:
         else []
     )
     if not result["trade_history"]:
-        if has_diagnostics and not notes:
+        # Only recorded order attempts show that the strategy never placed one.
+        if "order_outcomes" in result and not notes:
             notes.insert(0, "No orders were placed: the strategy held on every trading bar.")
         else:
             notes.insert(0, "No fills: no order was executed in this run.")
     return notes
+
+
+# Pixels reserved below a trade chart's axis for its five-line performance box.
+SUMMARY_HEIGHT = 110
 
 
 def plot_strategy_trades(
@@ -832,12 +835,14 @@ def plot_strategy_trades(
             f"Total Trades: {int(total_trades)}"
         )
 
+        # Summary and run notes sit below the axis so they never cover prices or markers.
         fig.add_annotation(
             text=annotation_text,
             xref="paper",
             yref="paper",
-            x=0.02,
-            y=0.98,
+            x=0,
+            y=0,
+            yshift=-60,
             xanchor="left",
             yanchor="top",
             showarrow=False,
@@ -848,7 +853,6 @@ def plot_strategy_trades(
             font=dict(size=11),
         )
 
-        # Keep run notes below the axis so they never cover prices or markers.
         note_lines = [escape(line) for note in notes for line in wrap(note, 110)]
         if note_lines:
             fig.add_annotation(
@@ -857,7 +861,7 @@ def plot_strategy_trades(
                 yref="paper",
                 x=0,
                 y=0,
-                yshift=-60,
+                yshift=-60 - SUMMARY_HEIGHT,
                 xanchor="left",
                 yanchor="top",
                 align="left",
@@ -873,11 +877,12 @@ def plot_strategy_trades(
             xaxis_title="Date",
             yaxis_title="Price ($)",
             template="plotly_white",
-            height=600 + 18 * len(note_lines),
-            margin=dict(b=80 + 18 * len(note_lines)),
+            height=600 + SUMMARY_HEIGHT + 18 * len(note_lines),
+            margin=dict(b=80 + SUMMARY_HEIGHT + 18 * len(note_lines)),
             hovermode="closest",
             showlegend=True,
-            legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+            # Above the plot area: covers no price or marker and keeps the full width.
+            legend=dict(orientation="h", x=0, y=1, xanchor="left", yanchor="bottom"),
         )
 
         figures[name] = fig

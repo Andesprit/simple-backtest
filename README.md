@@ -374,6 +374,24 @@ internet connection; each extra chart adds only its data (tens of KB here).
 The numbers are simulated on your data, not a forecast; a run picked by a
 parameter search is in-sample.
 
+### Comparing Two Saved Runs
+
+Save each run with `result.export_json(path)` (one strategy, for example
+`results.get_strategy("BuyAndHold").export_json("before.json")`), then compare
+the two files from a terminal:
+
+```bash
+python -m simple_backtest.compare before.json after.json
+```
+
+It lists the recorded inputs and settings that differ (data rows, dates and
+fingerprint, strategy parameters, costs, seed, liquidation and package versions),
+then fields recorded in only one file, marked unknown rather than equal, and
+only then both values of every metric. It ranks nothing and re-runs nothing: a
+changed setting is a fact to check, not proof of why a metric moved. Exports of
+several strategies, searches or walk-forward reports are refused with the call
+that saves a single run.
+
 ### Parameter Optimization
 
 Find strategy parameters with a built-in optimizer, then inspect the run that won:
@@ -454,7 +472,8 @@ trial; the aggregates never pick a different winner. Failed and undefined
 evaluations keep their rows and a `note` (also after a search where every
 candidate failed). Values are in-sample observations in the objective's units
 (`summary.attrs["trial_summary"]` gives unit and direction), not a robustness
-estimate. The full per-trial rows stay in the ranked DataFrame, failures in
+estimate. Trials with a defined objective stay as rows in the ranked DataFrame;
+undefined-objective trials appear only in these counts, failures in
 `optimizer.failures`, and the winning run in `optimizer.best_result`.
 Combinations are grouped as the search deduplicated them, so values that
 compare equal (such as `1`, `1.0` and `True`) count as one.

@@ -48,7 +48,7 @@ class StrategyResult:
         self.returns = data["returns"]
         self.errors = data.get("errors", [])
         self.order_outcomes = data.get("order_outcomes", [])
-        self._diagnostics_recorded = "errors" in data or "order_outcomes" in data
+        self._diagnostics_recorded = {key for key in ("errors", "order_outcomes") if key in data}
         self._metadata = deepcopy(data.get("metadata", {}))
 
     @property
@@ -227,8 +227,8 @@ class StrategyResult:
     def _plot_dict(self) -> Dict[str, Any]:
         """Like _to_dict, but leave out diagnostics a legacy result never recorded."""
         data = self._to_dict()
-        if not self._diagnostics_recorded:
-            del data["errors"], data["order_outcomes"]
+        for key in {"errors", "order_outcomes"} - self._diagnostics_recorded:
+            del data[key]
         return data
 
     def __getitem__(self, key: str) -> Any:

@@ -191,6 +191,21 @@ def test_legacy_result_marks_missing_records_without_inventing_reasons(results, 
     assert "No orders were placed" not in notes and "No fills" in notes
 
 
+def test_errors_without_order_records_do_not_claim_the_strategy_held(results, data, tmp_path):
+    hold = results.get_strategy("Hold")
+    fields = ("metrics", "portfolio_values", "trade_history", "returns")
+    legacy = StrategyResult("Legacy", {**{k: getattr(hold, k) for k in fields}, "errors": []})
+
+    page = Page(export(legacy, tmp_path))
+    notes = " ".join(a.text for a in legacy.plot_trades(data).layout.annotations)
+
+    for text in (page.visible, notes):
+        assert "No orders were placed" not in text and "No fills" in text
+    assert "No orders were placed" in " ".join(
+        a.text for a in hold.plot_trades(data).layout.annotations
+    )
+
+
 def test_selected_search_trial_exports_without_another_simulation(data, tmp_path):
     optimizer = GridSearchOptimizer(verbose=False)
     optimizer.optimize(

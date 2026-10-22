@@ -210,6 +210,43 @@ def test_every_run_outcome_gets_an_explained_chart():
     pd.testing.assert_frame_equal(data, original)
 
 
+def test_legends_and_trade_summary_stay_off_plotted_data(visualization_data):
+    results, price_data = visualization_data
+    trade = plot_strategy_trades(price_data, results)["strategy"]
+    drawdowns = plot_drawdowns(results)
+
+    # Plotly's default legend sits outside the plot area, so it hides no line start.
+    for figure in (plot_equity_curve(results), plot_equity_curve(results, True), drawdowns):
+        assert figure.layout.legend.x is None and figure.layout.legend.y is None
+    assert (trade.layout.legend.y, trade.layout.legend.yanchor) == (1, "bottom")  # above it
+    summary, *notes = trade.layout.annotations
+    assert "Strategy Performance" in summary.text
+    assert (summary.yref, summary.y, summary.yanchor) == ("paper", 0, "top")
+    assert trade.layout.margin.b >= -summary.yshift + 95  # the box fits below the axis
+    # Default fill colors are translucent, so an earlier strategy's line stays visible.
+    assert all(trace.fillcolor is None for trace in drawdowns.data)
+
+
+def test_trade_notes_sit_below_the_performance_summary(visualization_data):
+    results, price_data = visualization_data
+    strategy = {**results["strategy"], "trade_history": []}
+
+    summary, note = plot_strategy_trades(price_data, {"strategy": strategy})["strategy"].layout[
+        "annotations"
+    ]
+
+    assert note.y == summary.y == 0 and note.yshift <= summary.yshift - 95
+
+
+def test_overlaid_return_histograms_share_bins(visualization_data):
+    results, _ = visualization_data
+
+    figure = plot_returns_distribution(results)
+
+    assert figure.data[0].bingroup is not None
+    assert len({trace.bingroup for trace in figure.data}) == 1
+
+
 @pytest.mark.parametrize("drop", [("returns",), ("returns", "portfolio_values")])
 def test_dictionary_without_timelines_still_plots_fills_and_diagnostics(visualization_data, drop):
     results, price_data = visualization_data
