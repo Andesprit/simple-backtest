@@ -165,14 +165,19 @@ def test_invalid_recorded_assumptions_raise(runs, metadata, field):
 
 
 @pytest.mark.parametrize("risk_free", [0.0, 0.05])
-def test_constant_windows_have_zero_sharpe_and_volatile_windows_still_match(risk_free):
+def test_constant_windows_have_no_sharpe_and_volatile_windows_still_match(risk_free):
     dates = pd.date_range("2024-01-01", periods=90, freq="D")
     rng = np.random.default_rng(3)
+    # Constant growth read from an equity curve carries ~1e-16 rounding noise.
+    noisy_flat = pd.Series(10000 * np.cumprod(np.full(46, 1.001))).pct_change().dropna().to_numpy()
     returns = {
         "zero": pd.Series(0.0, index=dates),
-        # calculate_sharpe_ratio gives a ~1e16 float-noise spike here; the chart shows 0.
         "constant": pd.Series(0.001, index=dates),
         "volatile_then_flat": pd.Series(np.r_[rng.normal(0, 0.01, 45), np.zeros(45)], index=dates),
+        # The rolling std can leave ~1e-10 behind here: a Sharpe spike of ~1.8e8 at a 0% target.
+        "volatile_then_noisy_flat": pd.Series(
+            np.r_[rng.normal(0, 0.01, 45), noisy_flat], index=dates
+        ),
     }
     metadata = {"periods_per_year": 252, "config": {"risk_free_rate": risk_free}}
 
@@ -181,15 +186,18 @@ def test_constant_windows_have_zero_sharpe_and_volatile_windows_still_match(risk
     )
 
     for trace in (fig.data[0], fig.data[2]):
-        assert (trace.y[WINDOW - 1 :] == 0).all()
-    mixed = returns["volatile_then_flat"]
-    sharpe, volatility = _canonical(mixed, 252, risk_free)
-    completed = fig.data[4].y[WINDOW - 1 :]
-    assert np.isfinite(completed).all()
-    flat = volatility == 0
-    np.testing.assert_allclose(completed[~flat], sharpe[~flat], rtol=1e-10, atol=1e-10)
-    assert (completed[flat] == 0).all()
-    np.testing.assert_allclose(fig.data[5].y[WINDOW - 1 :], volatility, atol=1e-12)
+        assert np.isnan(trace.y).all()
+    for sharpe_trace, volatility_trace, name in (
+        (fig.data[4], fig.data[5], "volatile_then_flat"),
+        (fig.data[6], fig.data[7], "volatile_then_noisy_flat"),
+    ):
+        sharpe, volatility = _canonical(returns[name], 252, risk_free)
+        completed = sharpe_trace.y[WINDOW - 1 :]
+        flat = volatility < 1e-9
+        assert flat.any() and (~flat).any()
+        assert np.isnan(completed[flat]).all() and np.isfinite(completed[~flat]).all()
+        np.testing.assert_allclose(completed, sharpe, rtol=1e-10, atol=1e-10)
+        np.testing.assert_allclose(volatility_trace.y[WINDOW - 1 :], volatility, atol=1e-12)
 
 
 def test_plotting_does_not_rerun_backtest(runs):

@@ -183,6 +183,8 @@ def format_metrics(metrics: Dict[str, float]) -> str:
           CAGR: 12.30%
         ...
     """
+    from simple_backtest.core.results import _format_value
+
     output = ["Performance Metrics", "=" * 50, ""]
 
     # Returns
@@ -194,8 +196,8 @@ def format_metrics(metrics: Dict[str, float]) -> str:
     # Risk
     output.append("Risk Metrics:")
     output.append(f"  Volatility: {metrics['volatility']:.2f}%")
-    output.append(f"  Sharpe Ratio: {metrics['sharpe_ratio']:.2f}")
-    output.append(f"  Sortino Ratio: {metrics['sortino_ratio']:.2f}")
+    output.append(f"  Sharpe Ratio: {_format_value(metrics['sharpe_ratio'])}")
+    output.append(f"  Sortino Ratio: {_format_value(metrics['sortino_ratio'])}")
     output.append(f"  Calmar Ratio: {metrics['calmar_ratio']:.2f}")
     output.append(f"  Max Drawdown: {metrics['max_drawdown']:.2f}%")
     output.append(f"  Max Drawdown Duration: {metrics['max_drawdown_duration']} periods")
@@ -222,6 +224,6 @@ def format_metrics(metrics: Dict[str, float]) -> str:
     output.append("Benchmark Comparison:")
     output.append(f"  Alpha: {metrics['alpha']:.2f}%")
     output.append(f"  Beta: {metrics['beta']:.2f}")
-    output.append(f"  Information Ratio: {metrics['information_ratio']:.2f}")
+    output.append(f"  Information Ratio: {_format_value(metrics['information_ratio'])}")
 
     return "\n".join(output)

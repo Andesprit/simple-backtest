@@ -39,7 +39,9 @@ def sample_data():
 @pytest.mark.parametrize("execution_price", ["open", "close", "typical"])
 def test_lowercase_data_matches_canonical_without_mutating_input(sample_data, execution_price):
     config = BacktestConfig(
-        lookback_period=30, parallel_execution=False, execution_price=execution_price,
+        lookback_period=30,
+        parallel_execution=False,
+        execution_price=execution_price,
         max_volume_participation=0.1,
     )
     lowercase = sample_data.rename(columns=str.lower)

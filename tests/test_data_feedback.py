@@ -229,10 +229,13 @@ def test_both_close_series_use_raw_close_without_adjustment(prices):
 
 @pytest.fixture
 def trending_prices():
-    close = pd.Series([100.0 + 2 * i for i in range(120)],
-                      index=pd.bdate_range("2023-01-02", periods=120, name="Date"))
-    return pd.DataFrame({"Open": close, "High": close * 1.001, "Low": close * 0.999,
-                         "Close": close, "Volume": 1e6})
+    close = pd.Series(
+        [100.0 + 2 * i for i in range(120)],
+        index=pd.bdate_range("2023-01-02", periods=120, name="Date"),
+    )
+    return pd.DataFrame(
+        {"Open": close, "High": close * 1.001, "Low": close * 0.999, "Close": close, "Volume": 1e6}
+    )
 
 
 @pytest.mark.parametrize("lowercase", [False, True])
@@ -271,9 +274,11 @@ def test_whole_price_gap_fix_preserves_consistent_bars(trending_prices):
 
 
 def test_adj_close_only_error_does_not_offer_unconditional_rename(trending_prices):
-    source = trending_prices.drop(columns="Close").assign(
-        **{"Adj Close": trending_prices["Close"] * 0.98}
-    ).reset_index()
+    source = (
+        trending_prices.drop(columns="Close")
+        .assign(**{"Adj Close": trending_prices["Close"] * 0.98})
+        .reset_index()
+    )
     with pytest.raises(DataValidationError) as caught:
         validate_dataframe(source)
     message = str(caught.value)

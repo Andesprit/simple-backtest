@@ -70,7 +70,8 @@ def test_optimizer_bounds_rejection_warnings(sample_data, backtest_config, optim
 
 
 @pytest.mark.parametrize(
-    "optimizer", [GridSearchOptimizer(verbose=False), RandomSearchOptimizer(n_iter=2, verbose=False)]
+    "optimizer",
+    [GridSearchOptimizer(verbose=False), RandomSearchOptimizer(n_iter=2, verbose=False)],
 )
 def test_feedback_all_optimizer_candidates_failed(sample_data, backtest_config, optimizer):
     with pytest.raises(ValueError) as caught:
@@ -88,7 +89,9 @@ def test_feedback_all_optimizer_candidates_failed(sample_data, backtest_config, 
 def test_feedback_random_search_keeps_valid_candidates(sample_data, backtest_config):
     optimizer = RandomSearchOptimizer(n_iter=2, verbose=False)
     results = optimizer.optimize(
-        sample_data, backtest_config, MovingAverageStrategy,
+        sample_data,
+        backtest_config,
+        MovingAverageStrategy,
         {"short_window": [5, 30], "long_window": [20], "shares": [1]},
     )
     assert results["short_window"].tolist() == [5]
@@ -205,13 +208,14 @@ class TestGridSearchOptimizer:
         """Test behavior with empty parameter space."""
         optimizer = GridSearchOptimizer(verbose=False)
 
-        # Empty param space results in 1 result (single combination with no parameters)
+        # Empty param space results in 1 result (single combination with no parameters).
+        # The defaults never trade here, so their flat returns have no Sharpe ratio.
         results = optimizer.optimize(
             data=sample_data,
             config=backtest_config,
             strategy_class=MovingAverageStrategy,
             param_space={},
-            metric="sharpe_ratio",
+            metric="total_return",
         )
 
         assert isinstance(results, pd.DataFrame)

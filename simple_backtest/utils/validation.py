@@ -266,7 +266,9 @@ def validate_dataframe(
                             f"A rename would break the Close range rule: {rule}: {mask.sum()} rows; "
                             f"first dates (up to 3): {first_dates}."
                         )
-            problems.append("The fix line below only preprocesses data; it does not supply missing Close.")
+            problems.append(
+                "The fix line below only preprocesses data; it does not supply missing Close."
+            )
         if any(col != "Close" or adj_close is None for col in missing_columns):
             problems.append(
                 "Supply the missing OHLCV columns or rename the corresponding source columns before running again."

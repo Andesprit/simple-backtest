@@ -133,7 +133,9 @@ class StrategyResult:
             "zero_size": "Use a positive size or budget when placing an order; use self.hold() to wait.",
             "zero_volume": "Check Volume data and max_volume_participation; this bar permits no fill.",
         }
-        hint = hints.get(reason, "Inspect result.order_outcomes for the rejected orders and reasons.")
+        hint = hints.get(
+            reason, "Inspect result.order_outcomes for the rejected orders and reasons."
+        )
         final_cash = self.trade_history[-1].get("cash") if self.trade_history else None
         if reason == "zero_size" and final_cash is not None and abs(final_cash) <= 1e-8:
             hint = (
@@ -206,7 +208,9 @@ class StrategyResult:
         """
         if metric_name not in self.metrics:
             available = list(self.metrics.keys())
-            raise KeyError(f"Metric '{metric_name}' not found. {_metric_hint(metric_name, available)}")
+            raise KeyError(
+                f"Metric '{metric_name}' not found. {_metric_hint(metric_name, available)}"
+            )
         return self.metrics[metric_name]
 
     def _to_dict(self) -> Dict[str, Any]:
@@ -243,7 +247,7 @@ class StrategyResult:
         """String representation."""
         return (
             f"StrategyResult(name='{self.name}', "
-            f"sharpe={self.metrics.get('sharpe_ratio', 0):.2f}, "
+            f"sharpe={_format_value(self.metrics.get('sharpe_ratio', 0))}, "
             f"total_return={self.metrics.get('total_return', 0):.2f}%)"
         )
 
@@ -449,7 +453,9 @@ class BacktestResults:
             name for name, result in self._strategies.items() if metric not in result.metrics
         ]
         if missing:
-            available = sorted({key for result in self._strategies.values() for key in result.metrics})
+            available = sorted(
+                {key for result in self._strategies.values() for key in result.metrics}
+            )
             raise KeyError(
                 f"Metric '{metric}' is missing for strategies: {missing}. "
                 f"{_metric_hint(metric, available)}"
@@ -594,7 +600,9 @@ class BacktestResults:
             best = max(eligible, key=lambda result: result.metrics["total_return"])
             best_return = best.metrics["total_return"]
             verdict = f"Best total return: {best.name} ({best_return:.2f}%)."
-            benchmark_return = self.benchmark.metrics.get("total_return") if self.benchmark else None
+            benchmark_return = (
+                self.benchmark.metrics.get("total_return") if self.benchmark else None
+            )
             if pd.notna(benchmark_return):
                 difference = best_return - benchmark_return
                 if difference == 0:
@@ -614,7 +622,9 @@ class BacktestResults:
         results = list(self._strategies.values())
         if self.benchmark is not None:
             results.append(self.benchmark)
-        return [f"{result.name}: {note}" for result in results for note in result._diagnostic_notes()]
+        return [
+            f"{result.name}: {note}" for result in results for note in result._diagnostic_notes()
+        ]
 
     def _repr_html_(self) -> str:
         """Render the same comparison and diagnostics in a notebook cell."""

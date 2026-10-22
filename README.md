@@ -344,8 +344,8 @@ Each run's Sharpe and volatility are annualized with its recorded
 hourly, daily and monthly run can share one chart. The note below the chart and
 the hover text show each run's values. A result dictionary without recorded
 values uses 252 periods/year and a 0% target, marked "assumed". A window whose
-returns do not vary has a Sharpe ratio of 0, and a run with fewer returns than
-the window has no rolling line; the note names it.
+returns do not vary has no Sharpe value (a gap in the line), and a run with fewer
+returns than the window has no rolling line; the note names it.
 
 ### Sharing a Report
 
@@ -689,7 +689,11 @@ The framework calculates 20+ metrics automatically:
 
 Sortino uses the root mean square shortfall below the periodic risk-free target,
 including zero shortfalls for observations above target. With no downside its
-denominator is zero and the ratio is `NaN`. Optimizer rankings and best/worst
+denominator is zero and the ratio is `NaN`. Sharpe and information ratio are also
+`NaN` (printed `n/a`) when the per-bar returns, or their differences to the
+benchmark, all lie within 1e-12 of each other, because that spread is float
+rounding noise, not risk; Sortino treats a downside deviation up to 1e-12 the
+same way. Optimizer rankings and best/worst
 selection exclude undefined (`NaN`) objectives; selection raises if all values
 are undefined. Legitimate infinite metrics, such as profit factor with gains
 and no losses, remain rankable.

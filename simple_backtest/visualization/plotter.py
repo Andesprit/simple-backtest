@@ -4,13 +4,14 @@ from collections.abc import Mapping
 from html import escape
 from numbers import Real
 from textwrap import wrap
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from simple_backtest.metrics.definitions import FLAT_TOLERANCE
 from simple_backtest.utils.validation import _normalize_ohlcv_columns
 
 # Color palette for consistent styling
@@ -395,7 +396,7 @@ def _recorded_number(name: str, field: str, value, valid, expected: str):
     if (
         isinstance(value, bool)
         or not isinstance(value, Real)
-        or not np.isfinite(value)
+        or not np.isfinite(cast(float, value))
         or not valid(value)
     ):
         raise ValueError(
@@ -458,7 +459,7 @@ def plot_rolling_metrics(results, window: int = 30) -> go.Figure:
     ``config.risk_free_rate`` from result metadata, as the result's metrics do.
     A run without them uses 252 periods/year and a 0% target; the note below the
     chart marks those values as assumed. A window whose returns do not vary has
-    a Sharpe ratio of 0. No value is shown before a window has ``window`` returns.
+    no Sharpe value. No value is shown before a window has ``window`` returns.
 
     Args:
         results: BacktestResults object or dictionary mapping strategy names to result dictionaries
@@ -490,11 +491,9 @@ def plot_rolling_metrics(results, window: int = 30) -> go.Figure:
         # Same definitions as calculate_sharpe_ratio and calculate_volatility per window.
         period_risk_free = (1 + assumptions["risk_free"]) ** (1 / periods) - 1
         excess = (returns - period_risk_free).rolling(window)
-        excess_std = excess.std()
-        rolling_sharpe = (
-            (excess.mean() / excess_std * np.sqrt(periods))
-            .where(excess_std != 0, 0.0)
-            .where(excess_std.notna())
+        # A flat window (is_flat) has no Sharpe; partial windows compare NaN, so stay NaN too.
+        rolling_sharpe = (excess.mean() / excess.std() * np.sqrt(periods)).where(
+            excess.max() - excess.min() > FLAT_TOLERANCE
         )
         rolling_vol = returns.rolling(window).std() * np.sqrt(periods) * 100
 
@@ -829,7 +828,7 @@ def plot_strategy_trades(
         annotation_text = (
             f"<b>Strategy Performance</b><br>"
             f"Total Return: <span style='color:{pnl_color}'>{total_return:+.2f}%</span><br>"
-            f"Sharpe Ratio: {sharpe_ratio:.2f}<br>"
+            f"Sharpe Ratio: {f'{sharpe_ratio:.2f}' if pd.notna(sharpe_ratio) else 'n/a'}<br>"
             # Win statistics only apply once a trade has closed.
             f"Win Rate: {f'{win_rate:.2f}%' if sell_trades else 'n/a (no closed trades)'}<br>"
             f"Total Trades: {int(total_trades)}"

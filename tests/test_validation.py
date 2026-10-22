@@ -320,7 +320,10 @@ class TestExceptionClasses:
 
     def test_feedback_column_hint_survives_worker_serialization(self):
         error = StrategyExecutionError(
-            "BadColumn", pd.Timestamp("2024-01-01"), "prediction", KeyError("close"),
+            "BadColumn",
+            pd.Timestamp("2024-01-01"),
+            "prediction",
+            KeyError("close"),
             ". Available columns: ['Close'].",
         )
         restored = pickle.loads(pickle.dumps(error))

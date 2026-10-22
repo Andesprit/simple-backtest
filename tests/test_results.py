@@ -87,9 +87,15 @@ class TestStrategyResult:
         report = str(StrategyResult("Example", sample_strategy_data))
 
         for text in (
-            "Example", "Total Return: 25.50%", "CAGR: 10.20%",
-            "Max Drawdown: 12.30%", "Sharpe: 1.50", "Trades: 10",
-            "Final Value: $10,700.00", "Win Rate: 60.00%", "Profit Factor: 2.50",
+            "Example",
+            "Total Return: 25.50%",
+            "CAGR: 10.20%",
+            "Max Drawdown: 12.30%",
+            "Sharpe: 1.50",
+            "Trades: 10",
+            "Final Value: $10,700.00",
+            "Win Rate: 60.00%",
+            "Profit Factor: 2.50",
         ):
             assert text in report
 
@@ -301,7 +307,15 @@ class TestBacktestResults:
         html = results._repr_html_()
 
         assert "<table" in html
-        for text in ("Strategy1", "Strategy2", "benchmark", "30.00%", "Max Drawdown", "Sharpe", "Trades"):
+        for text in (
+            "Strategy1",
+            "Strategy2",
+            "benchmark",
+            "30.00%",
+            "Max Drawdown",
+            "Sharpe",
+            "Trades",
+        ):
             assert text in html
         verdict = str(results).split("\n\n")[1]
         assert verdict in unescape(html)

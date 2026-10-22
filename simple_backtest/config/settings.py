@@ -102,7 +102,7 @@ class BacktestConfig(BaseModel):
             hints = []
             for issue in issues:
                 if issue["type"] == "extra_forbidden":
-                    name = issue["loc"][-1]
+                    name = str(issue["loc"][-1])
                     matches = get_close_matches(name, cls.model_fields, n=1)
                     if matches:
                         hints.append(f"Unknown field '{name}'. Did you mean '{matches[0]}'?")
@@ -221,7 +221,8 @@ class BacktestConfig(BaseModel):
             fix = (
                 f"Reduce lookback_period to lookback_period={total_rows - 2} if the strategy's "
                 "required_history allows, or supply more data."
-                if total_rows >= 3 else "Supply more data; even lookback_period=1 needs at least 3 rows."
+                if total_rows >= 3
+                else "Supply more data; even lookback_period=1 needs at least 3 rows."
             )
             raise ValueError(
                 f"lookback_period ({self.lookback_period}) must be less than "

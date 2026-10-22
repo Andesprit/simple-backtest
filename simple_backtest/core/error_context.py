@@ -99,7 +99,7 @@ _SHORT_MEANING = {
 
 def stage_meaning(error: Dict[str, Any], short: bool = False) -> str:
     """What a stage implies about timing and fills, for one recorded error."""
-    stage = error.get("stage")
+    stage: Any = error.get("stage")
     meanings = _SHORT_MEANING if short else _STAGE_MEANING
     template = meanings.get(stage, "Unknown stage {stage!r}; read the raw record.")
     return template.format(t=error.get("timestamp"), stage=stage)

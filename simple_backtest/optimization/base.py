@@ -70,7 +70,7 @@ class Optimizer(ABC):
         self._param_names = list(param_space)
         self._best = self._last_result = None
         self._evaluations, self._trial_context = [], {}
-        self._snapshot_error: str | None = None
+        self._snapshot_error = None
         cleaned = {}
         for name, values in param_space.items():
             if not isinstance(values, (list, tuple, range)) or not values:
