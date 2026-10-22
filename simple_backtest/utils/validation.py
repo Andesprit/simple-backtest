@@ -2,6 +2,7 @@
 
 import warnings
 from datetime import datetime
+from pathlib import Path
 from typing import List
 
 import pandas as pd
@@ -48,56 +49,27 @@ class StrategyExecutionError(StrategyError, RuntimeError):
         timestamp: datetime,
         stage: str,
         cause: Exception,
+        hint: str = "",
     ) -> None:
         self.strategy_name = strategy_name
         self.timestamp = timestamp
         self.stage = stage
         self.cause = cause
-        super().__init__(f"Strategy '{strategy_name}' {stage} failed at {timestamp}: {cause}")
+        self.hint = hint
+        super().__init__(f"Strategy '{strategy_name}' {stage} failed at {timestamp}: {cause}{hint}")
 
     def __reduce__(self):
         """Preserve contextual constructor arguments across worker processes."""
         serialized_cause = RuntimeError(f"{type(self.cause).__name__}: {self.cause}")
         return (
             type(self),
-            (self.strategy_name, self.timestamp, self.stage, serialized_cause),
+            (self.strategy_name, self.timestamp, self.stage, serialized_cause, self.hint),
         )
 
 
-def validate_dataframe(
-    data: pd.DataFrame, strict: bool = True, require_volume: bool = False
-) -> None:
-    """Validate DataFrame structure for backtesting with actionable error messages.
-
-    The engine accepts one OHLC(V) series at a time. Its accounting model is
-    long-only and cash-funded; asset-specific mechanics are not inferred here.
-
-    :param data: DataFrame to validate (OHLCV format)
-    :param strict: If True, raise errors; if False, warn only
-    :param require_volume: If True, Volume column is required; if False, it's optional
-    """
-    # Check if DataFrame
-    if not isinstance(data, pd.DataFrame):
-        raise DataValidationError(
-            f"Expected pandas DataFrame, got {type(data).__name__}.\n"
-            f"\n"
-            f"→ Fix: Load your data into a DataFrame:\n"
-            f"  import pandas as pd\n"
-            f"  df = pd.read_csv('data.csv', index_col=0, parse_dates=True)\n"
-            f"\n"
-            f"  Or if you have lists/arrays:\n"
-            f"  df = pd.DataFrame({{'Open': [...], 'High': [...], ...}})"
-        )
-
-    if data.empty:
-        raise DataValidationError(
-            "DataFrame is empty (0 rows).\n"
-            "\n"
-            "→ Fix: Ensure you loaded data correctly:\n"
-            "  print(df.head())  # Check if data loaded\n"
-            "  print(len(df))    # Check number of rows"
-        )
-
+def _normalize_ohlcv_columns(data: pd.DataFrame) -> pd.DataFrame:
+    """Return an independent frame with unambiguous canonical OHLCV names."""
+    data = data.copy(deep=True)
     # Handle MultiIndex columns (common with yfinance)
     if isinstance(data.columns, pd.MultiIndex):
         # Get unique values from all levels except the first (which should be OHLCV names)
@@ -140,37 +112,201 @@ def validate_dataframe(
                 f"  # Then flatten appropriately based on your data structure"
             )
 
+    # Reject duplicates before normalization so no price series is silently selected.
+    if data.columns.duplicated().any():
+        duplicates = data.columns[data.columns.duplicated()].tolist()
+        raise DataValidationError(f"DataFrame has duplicate column names: {duplicates}")
+
+    column_mapping = {}
+    for canonical in ("Open", "High", "Low", "Close", "Volume"):
+        matches = [
+            col
+            for col in data.columns
+            if isinstance(col, str) and col.casefold() == canonical.casefold()
+        ]
+        if len(matches) > 1:
+            raise DataValidationError(
+                f"Ambiguous columns for '{canonical}': {matches}. "
+                "Remove or rename the extra columns so only one matches this OHLCV name."
+            )
+        if matches:
+            column_mapping[matches[0]] = canonical
+    data.rename(columns=column_mapping, inplace=True)
+
+    return data
+
+
+def validate_dataframe(
+    data: pd.DataFrame, strict: bool = True, require_volume: bool = False
+) -> pd.DataFrame:
+    """Validate data and return a normalized copy without changing caller data.
+
+    OHLCV names are matched case-insensitively. Ambiguous aliases (for example
+    Close and close) are rejected. Date, gap and adjustment fixes are suggestions
+    only; validation never applies them automatically.
+    The engine accepts one OHLC(V) series at a time. Its accounting model is
+    long-only and cash-funded; asset-specific mechanics are not inferred here.
+
+    :param data: DataFrame to validate (OHLCV format)
+    :param strict: If True, raise errors; if False, warn only
+    :param require_volume: If True, Volume column is required; if False, it's optional
+    """
+    if not isinstance(data, pd.DataFrame):
+        path = repr(str(data)) if isinstance(data, (str, Path)) else "'prices.csv'"
+        raise DataValidationError(
+            f"Expected pandas DataFrame, got {type(data).__name__}. "
+            "Load the CSV yourself (replace 'Date' with your date column).\n"
+            "→ Fix:\n"
+            f"  df = pd.read_csv({path}, index_col='Date', parse_dates=True).sort_index().dropna()\n"
+            "This omits incomplete bars; review gaps before dropping them. "
+            "Open/High/Low/Close are required; OHLCV names are case-insensitive."
+        )
+
+    if data.empty:
+        raise DataValidationError(
+            "DataFrame is empty (0 rows).\n"
+            "\n"
+            "→ Fix: Ensure you loaded data correctly:\n"
+            "  print(df.head())  # Check if data loaded\n"
+            "  print(len(df))    # Check number of rows"
+        )
+
+    source_columns = data.columns
+    flatten_columns = isinstance(source_columns, pd.MultiIndex)
+    data = _normalize_ohlcv_columns(data)
+    if flatten_columns:
+        source_columns = source_columns.droplevel(1)
+    case_mapping = {
+        old: new
+        for old, new in zip(source_columns, data.columns)
+        if isinstance(old, str) and old != new
+    }
+
     # Check required columns
     required_columns = ["Open", "High", "Low", "Close"]
     if require_volume:
         required_columns.append("Volume")
 
     missing_columns = [col for col in required_columns if col not in data.columns]
-
-    if missing_columns:
-        col_examples = "      'open': 'Open',\n      'high': 'High',\n      'low': 'Low',\n      'close': 'Close'"
-        if require_volume or "Volume" in missing_columns:
-            col_examples += ",\n      'volume': 'Volume'"
-
-        raise DataValidationError(
-            f"Missing required columns: {missing_columns}\n"
-            f"\n"
-            f"Required columns: {required_columns}\n"
-            f"Your columns: {list(data.columns)}\n"
-            f"\n"
-            f"→ Fix option 1: Rename columns to match (case-sensitive!):\n"
-            f"  df.rename(columns={{\n"
-            f"{col_examples}\n"
-            f"  }}, inplace=True)\n"
-            f"\n"
-            f"→ Fix option 2: Rename all columns at once:\n"
-            f"  df.columns = {required_columns}"
+    date_column = (
+        next(
+            (
+                col
+                for col in data.columns
+                if isinstance(col, str) and col.casefold() in ("date", "datetime", "timestamp")
+            ),
+            None,
         )
+        if not isinstance(data.index, pd.DatetimeIndex)
+        else None
+    )
+    dates = pd.Index(data[date_column]) if date_column is not None else data.index
+    try:
+        parsed_dates = pd.to_datetime(dates, errors="coerce")
+        unsorted = not parsed_dates.is_monotonic_increasing
+    except (TypeError, ValueError):
+        # Exotic non-datetime indexes still get the structural DataValidationError below.
+        unsorted = False
+    adj_close = (
+        next(
+            (col for col in data.columns if isinstance(col, str) and col.casefold() == "adj close"),
+            None,
+        )
+        if "Close" in missing_columns
+        else None
+    )
+    available = [col for col in required_columns if col in data.columns]
+    if adj_close is not None:
+        available.append(adj_close)
+    missing_counts = data[available].isna().sum()
+    nan_columns = missing_counts[missing_counts > 0].index.tolist()
 
-    # Check for duplicate columns
-    if data.columns.duplicated().any():
-        duplicates = data.columns[data.columns.duplicated()].tolist()
-        raise DataValidationError(f"DataFrame has duplicate column names: {duplicates}")
+    problems = []
+    fix = "df"
+    if flatten_columns:
+        fix += ".droplevel(1, axis='columns')"
+    if case_mapping:
+        fix += f".rename(columns={case_mapping!r})"
+    if not isinstance(data.index, pd.DatetimeIndex):
+        problems.append(f"DataFrame index must be DatetimeIndex, got {type(data.index).__name__}.")
+        if date_column is not None:
+            problems.append(f"Use date column {date_column!r} as the index.")
+            fix += f".assign(**{{{date_column!r}: lambda frame: pd.to_datetime(frame[{date_column!r}])}}).set_index({date_column!r})"
+        elif isinstance(data.index, pd.RangeIndex):
+            fix = "pd.read_csv('prices.csv', index_col='Date', parse_dates=True)"
+            problems.append(
+                "Load the date column as the index; replace 'Date' with its actual name."
+            )
+        else:
+            fix += ".set_axis(pd.to_datetime(df.index), axis='index')"
+    if missing_columns:
+        problems.append(
+            f"Missing required columns: {missing_columns}. "
+            f"Required columns: {required_columns}. Your columns: {list(data.columns)}."
+        )
+        if adj_close is not None:
+            problems.append(
+                f"{adj_close!r} is an adjusted closing price; Open/High/Low are probably unadjusted. "
+                "Choose one price basis: supply unadjusted Close, or supply consistently adjusted OHLC "
+                "from your data provider. Renaming alone cannot recover raw Close or adjustment factors.\n"
+                "Only rename after preprocessing, and only if Open/High/Low are already adjusted: "
+                f"df = df.rename(columns={{{adj_close!r}: 'Close'}})"
+            )
+            if all(
+                col in data and pd.api.types.is_numeric_dtype(data[col])
+                for col in (adj_close, "High", "Low")
+            ):
+                for rule, mask in (
+                    (f"{adj_close} below Low", data[adj_close] < data["Low"]),
+                    (f"{adj_close} above High", data[adj_close] > data["High"]),
+                ):
+                    if mask.any():
+                        first_dates = [str(date) for date in dates[mask.to_numpy()][:3]]
+                        problems.append(
+                            f"A rename would break the Close range rule: {rule}: {mask.sum()} rows; "
+                            f"first dates (up to 3): {first_dates}."
+                        )
+            problems.append(
+                "The fix line below only preprocesses data; it does not supply missing Close."
+            )
+        if any(col != "Close" or adj_close is None for col in missing_columns):
+            problems.append(
+                "Supply the missing OHLCV columns or rename the corresponding source columns before running again."
+            )
+    if unsorted:
+        problems.append("DataFrame dates must be sorted in ascending order.")
+        fix += ".sort_index()"
+    if nan_columns:
+        locations = {
+            col: [str(date) for date in dates[data[col].isna().to_numpy()][:3]]
+            for col in nan_columns
+        }
+        problems.append(
+            f"Found NaN values in columns: {nan_columns}. "
+            f"NaN counts: {missing_counts[missing_counts > 0].to_dict()}. "
+            f"First missing dates per column (up to 3): {locations}."
+        )
+        gap_rows = data[available].isna().any(axis=1)
+        price_columns = [col for col in available if col != "Volume"]
+        whole_price_gaps = data[price_columns].isna().all(axis=1)[gap_rows].all()
+        if whole_price_gaps:
+            fix += ".ffill()"
+            problems.append(
+                "Every gap row is missing all OHLC prices: forward-fill only if carrying the "
+                "previous bar is appropriate; the final dropna removes unfillable leading gaps. "
+                "Alternatively, omit incomplete bars with dropna instead."
+            )
+        else:
+            problems.append(
+                "Some bars are only partly missing: omit incomplete bars with dropna rather than "
+                "filling individual prices outside that day's High/Low range; review the omitted dates."
+            )
+        fix += f".dropna(subset={available!r})"
+    if problems:
+        message = "\n".join(problems) + f"\n→ Fix:\n  df = {fix}"
+        if strict or missing_columns:
+            raise DataValidationError(message)
+        warnings.warn(message, UserWarning)
 
     # Validate data types
     cols_to_validate = ["Open", "High", "Low", "Close"]
@@ -199,86 +335,12 @@ def validate_dataframe(
                 f"  df.dropna(inplace=True)  # Remove rows that couldn't convert"
             )
 
-    # Check for missing values
-    missing_counts = data[required_columns].isnull().sum()
-    if missing_counts.any():
-        nan_columns = missing_counts[missing_counts > 0].index.tolist()
-        nan_count = {col: missing_counts[col] for col in nan_columns}
-
-        if strict:
-            raise DataValidationError(
-                f"Found NaN values in columns: {nan_columns}\n"
-                f"\n"
-                f"NaN counts: {nan_count}\n"
-                f"Total rows: {len(data)}\n"
-                f"\n"
-                f"→ Fix option 1: Forward-fill missing values:\n"
-                f"  df.fillna(method='ffill', inplace=True)\n"
-                f"\n"
-                f"→ Fix option 2: Drop rows with NaN:\n"
-                f"  df.dropna(inplace=True)\n"
-                f"\n"
-                f"→ Fix option 3: Fill with specific value:\n"
-                f"  df.fillna(0, inplace=True)"
-            )
-        else:
-            warnings.warn(
-                f"DataFrame contains missing values:\n{missing_counts[missing_counts > 0]}",
-                UserWarning,
-            )
-
     # Check for infinite values
     inf_counts = data[cols_to_validate].isin([float("inf"), float("-inf")]).sum()
     if inf_counts.any():
         raise DataValidationError(
             f"DataFrame contains infinite values:\n{inf_counts[inf_counts > 0]}"
         )
-
-    # Verify date index
-    if not isinstance(data.index, pd.DatetimeIndex):
-        if strict:
-            raise DataValidationError(
-                f"DataFrame index must be DatetimeIndex, got {type(data.index).__name__}.\n"
-                f"\n"
-                f"Current index type: {type(data.index).__name__}\n"
-                f"First few index values: {data.index[:3].tolist()}\n"
-                f"\n"
-                f"→ Fix option 1: Convert existing index to datetime:\n"
-                f"  df.index = pd.to_datetime(df.index)\n"
-                f"\n"
-                f"→ Fix option 2: Parse dates when loading CSV:\n"
-                f"  df = pd.read_csv('data.csv', index_col=0, parse_dates=True)\n"
-                f"\n"
-                f"→ Fix option 3: Set a datetime column as index:\n"
-                f"  df['Date'] = pd.to_datetime(df['Date'])\n"
-                f"  df.set_index('Date', inplace=True)"
-            )
-        else:
-            warnings.warn(
-                f"DataFrame index should be DatetimeIndex, got {type(data.index)}. "
-                "Date-based operations may not work correctly.",
-                UserWarning,
-            )
-
-    # Check if index is sorted
-    if isinstance(data.index, pd.DatetimeIndex):
-        if not data.index.is_monotonic_increasing:
-            if strict:
-                raise DataValidationError(
-                    f"DataFrame index must be sorted in ascending order.\n"
-                    f"\n"
-                    f"First few dates: {data.index[:3].tolist()}\n"
-                    f"Last few dates: {data.index[-3:].tolist()}\n"
-                    f"\n"
-                    f"→ Fix: Sort your data by date:\n"
-                    f"  df.sort_index(inplace=True)"
-                )
-            else:
-                warnings.warn(
-                    "DataFrame index (dates) is not sorted in ascending order. "
-                    "This may cause unexpected behavior.",
-                    UserWarning,
-                )
 
     # Check for duplicate indices
     if data.index.duplicated().any():
@@ -293,26 +355,53 @@ def validate_dataframe(
             )
 
     # Validate OHLC relationships
-    invalid_ohlc = (
-        (data["High"] < data["Low"])
-        | (data["Open"] < data["Low"])
-        | (data["Open"] > data["High"])
-        | (data["Close"] < data["Low"])
-        | (data["Close"] > data["High"])
+    broken_rules = pd.DataFrame(
+        {
+            "High below Low": data["High"] < data["Low"],
+            "Open below Low": data["Open"] < data["Low"],
+            "Open above High": data["Open"] > data["High"],
+            "Close below Low": data["Close"] < data["Low"],
+            "Close above High": data["Close"] > data["High"],
+        }
     )
+    invalid_ohlc = broken_rules.any(axis=1)
 
     if invalid_ohlc.any():
-        invalid_count = invalid_ohlc.sum()
+        details = [
+            f"DataFrame has {invalid_ohlc.sum()} rows with invalid OHLC relationships.",
+            "Broken rules (counts may overlap); first dates per rule (up to 3):",
+        ]
+        for rule, mask in broken_rules.items():
+            if mask.any():
+                first_dates = [str(date) for date in data.index[mask][:3]]
+                details.append(f"  {rule}: {mask.sum()} rows; dates: {first_dates}.")
+        close_outside = broken_rules[["Close below Low", "Close above High"]].any(axis=1)
+        copied_adjusted_close = any(
+            isinstance(col, str)
+            and col.casefold() == "adj close"
+            and (data["Close"].eq(data[col]) & close_outside).any()
+            for col in data.columns
+        )
+        if close_outside.mean() > 0.5 or copied_adjusted_close:
+            details.append(
+                "If Close came from 'Adj Close', it may be mixed with unadjusted Open/High/Low. "
+                "In that case, supply unadjusted Close, or supply consistently adjusted OHLC "
+                "from your data provider. Renaming alone cannot recover the missing raw Close "
+                "or adjustment factors."
+            )
+        details.append("Check these rows against your source data and correct the prices.")
+        if invalid_ohlc.mean() <= 0.1:
+            details.append(
+                "Only a few rows fail. If this followed a column-wise fill, reload the original "
+                "data and consider omitting incomplete bars with "
+                "df.dropna(subset=['Open', 'High', 'Low', 'Close']); filling individual prices "
+                "can place them outside that day's High/Low range."
+            )
+        message = "\n".join(details)
         if strict:
-            raise DataValidationError(
-                f"DataFrame has {invalid_count} rows with invalid OHLC relationships. "
-                f"First invalid row:\n{data[invalid_ohlc].head(1)}"
-            )
+            raise DataValidationError(message)
         else:
-            warnings.warn(
-                f"DataFrame has {invalid_count} rows with invalid OHLC relationships.",
-                UserWarning,
-            )
+            warnings.warn(message, UserWarning)
 
     price_columns = ["Open", "High", "Low", "Close"]
     nonpositive_prices = (data[price_columns] <= 0).any()
@@ -344,6 +433,8 @@ def validate_dataframe(
                 UserWarning,
             )
 
+    return data
+
 
 def validate_date_range(
     data: pd.DataFrame,
@@ -370,8 +461,15 @@ def validate_date_range(
 
     # Validate lookback period
     if lookback_period >= total_rows:
+        fix = (
+            f"Reduce lookback_period to lookback_period={total_rows - 2} if the strategy's "
+            "required_history allows, or supply more data."
+            if total_rows >= 3
+            else "Supply more data; even lookback_period=1 needs at least 3 rows."
+        )
         raise DateRangeError(
-            f"lookback_period ({lookback_period}) must be less than total data rows ({total_rows})"
+            f"lookback_period ({lookback_period}) must be less than total data rows ({total_rows}). "
+            f"Need at least {lookback_period + 2} rows for this lookback and two trading dates. {fix}"
         )
 
     # Determine effective trading dates
@@ -412,9 +510,21 @@ def validate_date_range(
 
     # Validate start < end
     if effective_start >= effective_end:
+        hint = ""
+        if total_rows == lookback_period + 1:
+            fix = (
+                f"Reduce lookback_period to lookback_period={total_rows - 2} if the strategy's "
+                "required_history allows, or supply more data."
+                if total_rows >= 3
+                else "Supply more data; even lookback_period=1 needs at least 3 rows."
+            )
+            hint = (
+                f" Data has {total_rows} rows; lookback_period={lookback_period} leaves only "
+                f"one trading date. Need at least {lookback_period + 2} rows. {fix}"
+            )
         raise DateRangeError(
             f"Trading start date ({effective_start}) must be before "
-            f"trading end date ({effective_end})"
+            f"trading end date ({effective_end}).{hint}"
         )
 
     # Ensure enough data for lookback before trading starts
@@ -436,15 +546,35 @@ def validate_strategies(strategies: List[Strategy], lookback_period: int | None 
     :param strategies: List of strategies to validate
     :param lookback_period: Maximum history rows supplied to each strategy
     """
+    if isinstance(strategies, Strategy):
+        raise TypeError("Pass a list of strategy instances: backtest.run([strategy]).")
+    if isinstance(strategies, type) and issubclass(strategies, Strategy):
+        raise TypeError(
+            f"Pass a list containing an instance: backtest.run([{strategies.__name__}(...)])."
+        )
     if not strategies:
         raise StrategyError("Must provide at least one strategy")
 
     for i, strategy in enumerate(strategies):
+        if isinstance(strategy, type) and issubclass(strategy, Strategy):
+            raise StrategyError(
+                f"Strategy at index {i} is a class. Create an instance with "
+                f"{strategy.__name__}(...) and pass it in a list to run()."
+            )
         # Check inherits from base Strategy
         if not isinstance(strategy, Strategy):
             raise StrategyError(
                 f"Strategy at index {i} does not inherit from base Strategy class. "
                 f"Got type: {type(strategy)}"
+            )
+
+        if not all(
+            hasattr(strategy, attribute)
+            for attribute in ("_name", "_portfolio_state", "_random_seed", "rng")
+        ):
+            raise AttributeError(
+                f"{type(strategy).__name__} is missing Strategy initialization. "
+                "Call super().__init__() from your strategy's __init__()."
             )
 
         # Check has predict method

@@ -66,7 +66,7 @@ class GridSearchOptimizer(Optimizer):
         :return: DataFrame of results sorted by metric
         """
         results = []
-        param_space = self._prepare_search(param_space)
+        param_space = self._prepare_search(param_space, metric)
         param_names = list(param_space.keys())
         backtest = Backtest(data, config)
         combination_count = math.prod(len(values) for values in param_space.values())
@@ -96,6 +96,7 @@ class GridSearchOptimizer(Optimizer):
                 continue
 
             try:
+                self._last_result = None
                 metrics = self._run_backtest(data, config, strategy, backtest=backtest)
             except InsufficientHistoryError as error:
                 self._record_failure(param_dict, error)
@@ -103,6 +104,7 @@ class GridSearchOptimizer(Optimizer):
                     logger.warning(f"Invalid history for params {param_dict}: {error}")
                 continue
             results.append({**param_dict, **metrics})
+            self._consider(param_dict, metrics, metric)
 
         return self._finish_search(
             results,
@@ -114,4 +116,5 @@ class GridSearchOptimizer(Optimizer):
                 "parameter_space": param_space,
                 "available_candidates": combination_count,
             },
+            strategy_class=strategy_class,
         )

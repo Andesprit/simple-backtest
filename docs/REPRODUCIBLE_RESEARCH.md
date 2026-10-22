@@ -51,6 +51,16 @@ ranked = search.optimize(
 assert search.summary["unique_candidates"] == 3
 assert search.summary["attempted_evaluations"] == 9
 print(ranked[["probability", "trial", "simulation_seed", "total_return"]])
+print(search)  # Objective, selected trial and seed, counts
+best = search.best_result  # The selected trial's own run, not a re-simulation
+assert best.metadata["random_seed"] == ranked.loc[0, "simulation_seed"]
+print(best, search.best_parameters)
+trials = search.trial_summary()  # Per-combination counts and observed min/median/max
+assert trials["attempted"].sum() == search.summary["attempted_evaluations"]
+assert trials["contains_selected"].sum() == 1  # Holds the selected trial; not a new winner
+print(trials[["probability", "attempted", "defined", "total_return_min",
+              "total_return_median", "total_return_max", "selected_trial"]])
+figure = search.plot_trials()  # Plotly Figure of every observed trial, star = selected trial
 search.export_json(ranked, "search.json")
 
 walk_forward = WalkForwardOptimizer(train_size=0.5, n_splits=3, verbose=False)
@@ -64,6 +74,7 @@ first_fold = report.folds[0]
 assert first_fold.result.portfolio_values.iloc[0] == config.initial_capital
 print(first_fold.parameters, first_fold.result.trade_history[:1])
 report.export_json("walk-forward.json")
+report.export_html("walk-forward.html", price_data=data)  # Every fold in one offline page
 ```
 
 ## Seeds and recorded inputs
@@ -74,7 +85,20 @@ not seed Python's global `random`, global NumPy state, or external estimators;
 configure those explicitly. Strategies sharing a seed start with the same RNG
 sequence. Random search's `random_state` controls candidate sampling and trial
 seeds; `repeats > 1` replaces the configured simulation seed for each trial.
-Each trial is returned separately, not averaged before ranking.
+Each trial is returned separately, not averaged before ranking. `search.best_result` is the
+one in-sample trial that ranked first, kept from the search itself, so its
+fills and returns match that row's `simulation_seed`; it is not an average or a
+robustness estimate. Replay it with
+`config.model_copy(update={"random_seed": seed})` and
+`RandomRebalance(**search.best_parameters)`. When `optimize` returns an empty
+DataFrame, `print(search)` explains why (undefined objective or failed
+candidates) and suggests a retry such as `metric="total_return"`.
+`search.trial_summary()` groups the same evaluations per tested combination,
+including failed and undefined ones, so you can compare the selected trial with
+the typical observation (median) and the spread of its repeats. These are
+in-sample observations, not a robustness estimate or a replacement selection
+rule; for out-of-sample evidence use walk-forward, which has no global
+`trial_summary()` and points you to its per-fold report instead.
 
 Result metadata includes copied configuration, strategy class and constructor
 parameters, package/Python/NumPy/pandas versions, seed, input-data fingerprint,
@@ -106,6 +130,16 @@ and drawdowns are percentages. Fold averages are unweighted. Do not concatenate
 the equity curves and interpret their reset balances as one investable account.
 The existing `optimize()` DataFrame API remains available; its detailed report
 is also stored in `optimizer.report`.
+
+`report.export_html(path, price_data=None)` writes one offline page from the
+same report, without re-running anything. Each fold keeps its own section with
+its training and test rows, selected parameters, strategy and benchmark equity,
+fills, diagnostics and assumptions. The summary shows the fold statistics above,
+never a best fold. The report does not record the search objective or base
+optimizer, so the page says so instead of guessing. Pass the price DataFrame
+given to the optimizer to add trade charts. The page embeds the Plotly runtime
+once (about 4.8 MB, the same fixed cost as a single-run report) and each fold
+adds only its own data.
 
 ## Export format
 

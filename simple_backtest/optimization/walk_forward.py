@@ -139,7 +139,9 @@ class WalkForwardOptimizer(Optimizer):
                 }
             )
             strategy = strategy_class(**parameters)
-            evaluation = Backtest(evaluation_data, evaluation_config).run([strategy])
+            backtest = Backtest(evaluation_data, evaluation_config)
+            backtest._warn_rejected_orders = False
+            evaluation = backtest.run([strategy])
             result = evaluation.get_strategy(strategy.get_name())
             assert evaluation.benchmark is not None
             folds.append(
@@ -182,6 +184,13 @@ class WalkForwardOptimizer(Optimizer):
         self.optimize(data, config, strategy_class, param_space, metric)
         assert self.report is not None
         return self.report
+
+    def _no_winner_reason(self) -> str:
+        """Walk-forward selects per fold; there is no single full-history winner."""
+        return (
+            "Walk-forward selects parameters separately in each fold; inspect "
+            "optimizer.report.folds[i].parameters and .result (out-of-sample)."
+        )
 
     def _fold_sizes(self, test_rows: int) -> list[int]:
         """Split all test rows across folds, assigning remainder to later folds."""

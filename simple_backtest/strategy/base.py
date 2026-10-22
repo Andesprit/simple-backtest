@@ -1,6 +1,7 @@
 """Base Strategy class using Strategy and Template Method design patterns."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from copy import deepcopy
 from inspect import signature
 from math import isfinite
@@ -243,6 +244,12 @@ class Strategy(ABC):
 
         :param prediction: Dict returned by predict()
         """
+        if not isinstance(prediction, Mapping):
+            raise AttributeError(
+                f"Strategy {self._name} predict() must return a dict, "
+                f"got {type(prediction).__name__} ({prediction!r}). "
+                "Return self.buy(shares), self.sell(shares), or self.hold() on every path."
+            )
         required_keys = {"signal", "size"}
         missing_keys = required_keys - set(prediction.keys())
         if missing_keys:

@@ -41,10 +41,10 @@ def test_calculate_sharpe_ratio():
     sharpe = defs.calculate_sharpe_ratio(returns, risk_free_rate=0.0)
     assert sharpe > 0
 
-    # Zero volatility
+    # Zero volatility: undefined
     returns = pd.Series([0.01, 0.01, 0.01])
     sharpe = defs.calculate_sharpe_ratio(returns)
-    assert sharpe == 0.0
+    assert pd.isna(sharpe)
 
 
 def test_calculate_sortino_ratio():
@@ -144,9 +144,9 @@ def test_calculate_information_ratio():
     ir = defs.calculate_information_ratio(strategy_returns, benchmark_returns)
     assert ir != 0.0
 
-    # Same returns
+    # Same returns: no tracking error, so undefined
     ir = defs.calculate_information_ratio(benchmark_returns, benchmark_returns)
-    assert ir == 0.0
+    assert pd.isna(ir)
 
 
 def test_calculate_alpha_beta_aligns_by_timestamp():

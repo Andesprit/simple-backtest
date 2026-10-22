@@ -156,6 +156,26 @@ cash plus that share at the final $125 close gives $1,025. Replace `data` with
 your own OHLC DataFrame; add Volume when using volume participation limits.
 For moving-average examples below, supply enough rows for their lookback windows.
 
+To use your own CSV with a `Date` column:
+
+```python
+data = pd.read_csv("prices.csv", index_col="Date", parse_dates=True)
+```
+
+The engine accepts OHLCV names in any capitalization on an internal copy. It
+requires sorted dates, positive numeric OHLC prices and no missing prices. For
+partly missing bars, review and omit incomplete rows with
+`data.dropna(subset=['Open', 'High', 'Low', 'Close'])`; filling individual prices
+can put them outside that day's High/Low range. If every gap row is missing all
+four prices, you may choose `data.sort_index().ffill().dropna(subset=['Open', 'High', 'Low', 'Close'])`
+to carry whole bars forward instead, after reviewing whether that assumption is appropriate.
+If your only closing-price column is `Adj Close`, supply unadjusted `Close` or
+consistently adjusted OHLC from your provider. Rename `Adj Close` to `Close` only
+when Open/High/Low are already adjusted to the same basis; a rename cannot recover
+missing raw prices or adjustment factors. When both closing-price columns are
+present, the engine uses `Close` unchanged.
+`validate_dataframe(data)` returns a normalized copy and leaves `data` unchanged.
+
 ## 📚 Documentation
 
 ### Creating a Custom Strategy
@@ -230,13 +250,25 @@ config = BacktestConfig.low_commission(initial_capital=10000)
 
 ### Comparing Multiple Strategies
 
+Print the result to see returns, risk and trading activity together. This example
+uses reproducible synthetic prices; replace `data` with your own OHLC DataFrame.
+
 ```python
+import numpy as np
+import pandas as pd
 from simple_backtest import (
     Backtest,
     BacktestConfig,
     MovingAverageStrategy,
     BuyAndHoldStrategy,
     DCAStrategy
+)
+
+rng = np.random.default_rng(0)
+close = 100 * np.exp(np.cumsum(rng.normal(0.0005, 0.01, 300)))
+data = pd.DataFrame(
+    {"Open": close, "High": close * 1.01, "Low": close * 0.99, "Close": close},
+    index=pd.date_range("2023-01-01", periods=300),
 )
 
 # Create strategies
@@ -247,49 +279,162 @@ strategies = [
 ]
 
 # Run backtest
-config = BacktestConfig.default(initial_capital=10000)
+config = BacktestConfig.default(initial_capital=10000, parallel_execution=False)
 backtest = Backtest(data, config)
 results = backtest.run(strategies)
 
-# Compare strategies
-comparison = results.compare()
-print(comparison)
+print(results)
+```
 
-# Get best strategy
+```text
+Strategy    Return    CAGR  Max Drawdown  Sharpe  Trades
+--------------------------------------------------------
+benchmark    7.53%  10.32%        14.38%    0.49       1
+BuyAndHold   3.65%   4.97%         7.76%    0.33       1
+MA_10_30    -0.77%  -1.04%         2.46%   -1.70      12
+DCA_30d     -2.89%  -3.89%         5.35%   -1.00       9
+
+Best total return: BuyAndHold (3.65%). It trailed benchmark by 3.88 percentage points.
+```
+
+"Best total return" ranks the strategies by return, excluding the benchmark; it
+does not rank their risk. The notebook display renders the same table, verdict
+and any rejected-order explanations. Printing an individual strategy result
+also shows its final value and win statistics; win rate and profit factor are
+`n/a` when no trades have closed.
+
+For a numeric DataFrame, a different ranking metric, or an equity chart:
+
+```python
+comparison = results.compare()  # Original numeric metrics, without display formatting
 best = results.best_strategy('sharpe_ratio')
 print(f"Best: {best.name} (Sharpe: {best.metrics['sharpe_ratio']:.2f})")
-
-# Visualize
 results.plot_comparison().show()
 ```
 
-### Parameter Optimization
-
-Find optimal strategy parameters using built-in optimizers:
+To see each strategy's fills on the price chart, pass the same price DataFrame
+you gave to `Backtest`:
 
 ```python
-from simple_backtest import GridSearchOptimizer, BacktestConfig
+results.get_strategy('BuyAndHold').plot_trades(data).show()  # One strategy
 
-# Define parameter space
-param_space = {
-    'short_window': [5, 10, 15, 20],
-    'long_window': [30, 40, 50, 60],
-    'shares': [10]
-}
+for name, fig in results.plot_trades(data).items():  # Every strategy, without the benchmark
+    fig.show()
+```
 
-# Run optimization
-optimizer = GridSearchOptimizer(verbose=True)
+Each chart covers the whole trading period, including bars after the last fill.
+A strategy with no fills still gets a chart. A note below the chart says whether
+the strategy placed no orders, its orders were rejected (with the main reason and
+a sizing hint), or it raised errors (full details stay in `result.errors`). If
+the price data misses some backtest dates, the chart title says so; if it covers
+none of them, `plot_trades` raises a `ValueError`.
+
+Rolling risk and the return histogram use the same assumptions as the printed
+metrics:
+
+```python
+from simple_backtest.visualization import plot_returns_distribution, plot_rolling_metrics
+
+plot_rolling_metrics(results, window=30).show()  # Window = 30 bars, not 30 days
+plot_returns_distribution(results).show()        # Return per bar (%)
+```
+
+Each run's Sharpe and volatility are annualized with its recorded
+`periods_per_year` and annual `risk_free_rate` (see `result.metadata`), so an
+hourly, daily and monthly run can share one chart. The note below the chart and
+the hover text show each run's values. A result dictionary without recorded
+values uses 252 periods/year and a 0% target, marked "assumed". A window whose
+returns do not vary has no Sharpe value (a gap in the line), and a run with fewer
+returns than the window has no rolling line; the note names it.
+
+### Sharing a Report
+
+Write everything above into one HTML file that opens offline in any browser,
+without Python:
+
+```python
+results.export_html("report.html", price_data=data)  # Returns the written path
+```
+
+The report has the comparison table and verdict, what to check for each
+strategy (no orders, rejected orders, errors), its key metrics and first fills,
+the equity and drawdown chart, one trade chart per strategy, and the recorded
+assumptions: capital, input and trading dates, execution price, costs, seed and
+data fingerprint. Values that differ between strategies are listed per strategy;
+a value an older result never recorded shows as "not recorded".
+`price_data` is optional: without it the report skips the trade charts and says
+how to add them. A single result works the same way, for example
+`optimizer.best_result.export_html("best.html", price_data=data)`.
+
+The tables are plain HTML, so the answers stay readable even if the charts do
+not load. Exporting never re-runs a strategy. Long error messages and long
+fill lists are shortened; `results.export_json(path)` keeps every record. The
+file embeds the Plotly chart library once (about 4.8 MB), so it needs no
+internet connection; each extra chart adds only its data (tens of KB here).
+The numbers are simulated on your data, not a forecast; a run picked by a
+parameter search is in-sample.
+
+### Comparing Two Saved Runs
+
+Save each run with `result.export_json(path)` (one strategy, for example
+`results.get_strategy("BuyAndHold").export_json("before.json")`), then compare
+the two files from a terminal:
+
+```bash
+python -m simple_backtest.compare before.json after.json
+```
+
+It lists the recorded inputs and settings that differ (data rows, dates and
+fingerprint, strategy parameters, costs, seed, liquidation and package versions),
+then fields recorded in only one file, marked unknown rather than equal, and
+only then both values of every metric. It ranks nothing and re-runs nothing: a
+changed setting is a fact to check, not proof of why a metric moved. Exports of
+several strategies, searches or walk-forward reports are refused with the call
+that saves a single run.
+
+### Parameter Optimization
+
+Find strategy parameters with a built-in optimizer, then inspect the run that won:
+
+```python
+import numpy as np
+import pandas as pd
+from simple_backtest import BacktestConfig, GridSearchOptimizer, MovingAverageStrategy
+
+rng = np.random.default_rng(42)
+close = 100 * np.exp(np.cumsum(rng.normal(0.0005, 0.01, 250)))
+data = pd.DataFrame(
+    {"Open": close, "High": close * 1.01, "Low": close * 0.99, "Close": close},
+    index=pd.date_range("2024-01-01", periods=250),
+)
+
+optimizer = GridSearchOptimizer(verbose=False)
 results = optimizer.optimize(
     data=data,
     config=BacktestConfig.default(lookback_period=60),
     strategy_class=MovingAverageStrategy,
-    param_space=param_space,
-    metric='sharpe_ratio'
+    param_space={"short_window": [5, 10, 20], "long_window": [30, 60], "shares": [10]},
+    metric="sharpe_ratio",
 )
+print(results.head(5))         # Ranked candidates, best first
 
-# View top results
-print(results.head(5))
+print(optimizer)               # Objective, winner, score, and evaluated/failed counts
+best = optimizer.best_result   # The winning run itself, not a new simulation
+print(best)                    # Also best.plot_trades(data), best.export_html("best.html", price_data=data)
+optimizer.best_parameters      # {'short_window': ..., 'long_window': ..., 'shares': 10}
 ```
+
+`best_parameters` keeps the exact values from `param_space` (integers stay
+integers), so `MovingAverageStrategy(**optimizer.best_parameters)` is ready for
+the next experiment. Copying a row of `results` instead adds metric columns and
+turns integers into floats.
+
+If no candidate has a defined objective (for example `sortino_ratio` on flat
+prices with `risk_free_rate=0`), `optimize` returns an empty DataFrame and warns
+once with the counts; retry with `metric="total_return"`. `print(optimizer)`
+gives the same explanation, and `best_result` raises a `ValueError` instead of
+returning an old winner. A misspelled objective stops after one evaluation and
+suggests the closest metric name. Failed candidates stay in `optimizer.failures`.
 
 **Available Optimizers:**
 - `GridSearchOptimizer` - Exhaustive search (best for small spaces)
@@ -306,14 +451,59 @@ Use an explicit `random_state` for reproducible candidate selection. Set
 `RandomSearchOptimizer(repeats=3, random_state=42)` runs three independently
 seeded trials per candidate and includes `trial` and `simulation_seed` columns.
 Repeated trials are ranked individually, so inspect their distribution before
-choosing parameters. `optimizer.summary` reports attempted evaluations, unique
+choosing parameters: with repeats, `best_result` is the single best in-sample
+trial, and `print(optimizer)` names its trial and seed. `optimizer.summary` reports attempted evaluations, unique
 candidates, failures, and excluded undefined objectives.
 
+To see the evidence behind the winner, group the trials per tested combination
+(no new simulations):
+
+```python
+summary = optimizer.trial_summary()  # One row per tested combination
+print(summary)                       # attempted/defined/undefined/failed, <metric>_min/_median/_max
+optimizer.plot_trials().show()       # Every observed trial per combination; star = selected trial
+```
+
+For example, a strategy that wins big in 1 of 4 seeds can rank first
+(`total_return_max` 2.41%) while its `total_return_median` is 0%, next to a
+steady combination at 0.48% in every repeat. `contains_selected` marks the
+combination holding the winning trial and `selected_trial` names that single
+trial; the aggregates never pick a different winner. Failed and undefined
+evaluations keep their rows and a `note` (also after a search where every
+candidate failed). Values are in-sample observations in the objective's units
+(`summary.attrs["trial_summary"]` gives unit and direction), not a robustness
+estimate. Trials with a defined objective stay as rows in the ranked DataFrame;
+undefined-objective trials appear only in these counts, failures in
+`optimizer.failures`, and the winning run in `optimizer.best_result`.
+Combinations are grouped as the search deduplicated them, so values that
+compare equal (such as `1`, `1.0` and `True`) count as one.
+
 `WalkForwardOptimizer.optimize()` still returns a chronological DataFrame.
+It has no single winner: `best_result` points you to `optimizer.report`.
 Use `optimize_report()` for selected parameters, strategy and benchmark equity,
 trades, and diagnostics for each fold. Every test fold starts with fresh initial
 capital and empty positions; aggregate metrics summarize independent folds and
 do not represent a continuous portfolio.
+
+```python
+from simple_backtest import WalkForwardOptimizer
+
+report = WalkForwardOptimizer(train_size=0.5, n_splits=3, verbose=False).optimize_report(
+    data,
+    BacktestConfig.default(lookback_period=60),
+    MovingAverageStrategy,
+    {"short_window": [5, 10, 20], "long_window": [30, 60], "shares": [10]},
+    metric="total_return",
+)
+report.export_html("walk-forward.html", price_data=data)  # Returns the written path
+```
+
+The page needs no Python or network. It lists each fold's training and test
+rows, selected parameters and statistics over independent folds, with no best
+fold picked, then one section per fold with its own strategy and benchmark
+charts, fills, diagnostics and assumptions. Nothing is re-run. `price_data` is
+optional and adds trade charts. Plotly is embedded once (about 4.8 MB), so three
+folds make one file of about 4.85 MB instead of three single-run reports.
 
 See the executable [research guide](docs/REPRODUCIBLE_RESEARCH.md) for seeded
 experiments, detailed walk-forward reports, and JSON exports.
@@ -364,6 +554,57 @@ For a custom execution price, set `execution_price="custom"` and pass
 `execution_price_extractor=` to `Backtest`. Strategy exceptions raise with
 strategy/date/stage context by default; use `error_policy="continue"` only when
 you intentionally want structured diagnostics in `StrategyResult.errors`.
+
+### Inspecting a continued strategy error
+
+With `error_policy="continue"`, `print(result)` counts the errors and
+`result.explain_error(i)` explains error `i` without re-running anything:
+
+```python
+import pandas as pd
+from simple_backtest import Backtest, BacktestConfig, Strategy
+
+class Typo(Strategy):
+    def predict(self, data, trade_history):
+        if data["close"].iloc[-1] > 0:  # wrong column case: KeyError
+            return self.buy(1)
+        return self.hold()
+
+    def on_trade_executed(self, trade_info):
+        raise RuntimeError("could not write the fill to my ledger")
+
+close = [100.0 + i % 5 for i in range(30)]
+data = pd.DataFrame(
+    {"Open": close, "High": [c + 1 for c in close], "Low": [c - 1 for c in close], "Close": close},
+    index=pd.date_range("2024-01-01", periods=30),
+)
+config = BacktestConfig.default(lookback_period=5, error_policy="continue", show_progress=False)
+result = Backtest(data, config).run([Typo()]).get_strategy("Typo")
+print(result.explain_error(0, price_data=data))  # source line, stage, fills, prior bars
+raw = result.errors[0]                            # the full record; export_json keeps all
+```
+
+The explanation names the recorded source (the first frame outside
+simple_backtest, Python and installed packages, plus where it was raised) and
+what the stage means:
+
+- **prediction**: `predict()` saw only rows before the error bar; that
+  prediction submitted no order. Final liquidation can still fill on the last bar.
+- **trade callback**: the fill was already committed; a failing
+  `on_trade_executed()` does not undo it. The record keeps the fill's `order_id`,
+  so it is exact even when two fills share a bar.
+- **execution** / **final liquidation**: check the listed fills to see whether one
+  was recorded.
+
+`price_data` is optional context. It is checked against the recorded data
+fingerprint: only an exact match is labelled as the rows `predict()` saw; changed,
+partial or unverified frames are labelled as supplied context, and a missing
+timestamp or a timezone mismatch is refused. The bar where orders execute is shown
+separately. Strategy attributes, indicator values, locals and callback arguments
+are never recorded. Each new error stores only a file name, function name and line
+number (a few hundred bytes), and only when an error happens; results from older
+versions say the source was not recorded. HTML reports show the same source and
+stage in their error preview.
 
 ### Execution and Timing Assumptions
 
@@ -448,7 +689,11 @@ The framework calculates 20+ metrics automatically:
 
 Sortino uses the root mean square shortfall below the periodic risk-free target,
 including zero shortfalls for observations above target. With no downside its
-denominator is zero and the ratio is `NaN`. Optimizer rankings and best/worst
+denominator is zero and the ratio is `NaN`. Sharpe and information ratio are also
+`NaN` (printed `n/a`) when the per-bar returns, or their differences to the
+benchmark, all lie within 1e-12 of each other, because that spread is float
+rounding noise, not risk; Sortino treats a downside deviation up to 1e-12 the
+same way. Optimizer rankings and best/worst
 selection exclude undefined (`NaN`) objectives; selection raises if all values
 are undefined. Legitimate infinite metrics, such as profit factor with gains
 and no losses, remain rankable.

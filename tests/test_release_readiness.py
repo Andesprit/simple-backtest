@@ -51,6 +51,8 @@ def test_research_guide_executes_and_exports_portable_reports(tmp_path, monkeypa
     assert search["metadata"]["search"]["strategy_class"].endswith("RandomRebalance")
     assert walk_forward["aggregate_metrics"]["test_bars"] == 60
     assert (tmp_path / "strategy.json").exists()
+    page = (tmp_path / "walk-forward.html").read_text(encoding="utf-8")
+    assert all(f'id="fold-{n}"' in page for n in (1, 2, 3))
 
 
 def test_notebooks_are_clean_and_import_public_api_names():

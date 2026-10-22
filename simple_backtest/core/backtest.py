@@ -1,5 +1,6 @@
 """Backtesting engine with parallelization support."""
 
+import warnings
 from copy import deepcopy
 from datetime import datetime
 from math import isfinite
@@ -12,6 +13,7 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 
 from simple_backtest.config.settings import BacktestConfig
+from simple_backtest.core.error_context import source_location
 from simple_backtest.core.portfolio import Portfolio
 from simple_backtest.core.results import BacktestResults
 from simple_backtest.core.serialization import data_fingerprint, json_value
@@ -48,12 +50,11 @@ class Backtest:
         :param commission_calculator: Deterministic, side-effect-free custom commission
             function (uses config if None)
         """
-        # Copy before normalization so validation never mutates caller-owned data.
-        self.data = data.copy(deep=True)
         self.config = config.model_copy(deep=True)
+        self._warn_rejected_orders = True
         config = self.config
-        validate_dataframe(
-            self.data,
+        self.data = validate_dataframe(
+            data,
             strict=True,
             require_volume=config.max_volume_participation is not None,
         )
@@ -328,7 +329,13 @@ class Backtest:
         for strategy, result in zip(strategies, strategy_results):
             results[strategy.get_name()] = result
 
-        return BacktestResults(results)
+        backtest_results = BacktestResults(results)
+        # Warn in the caller process so parallel runs have the same feedback and filters.
+        for name in backtest_results.list_strategies():
+            rejection_summary = backtest_results.get_strategy(name)._rejection_summary()
+            if self._warn_rejected_orders and rejection_summary:
+                warnings.warn(f"Strategy '{name}': {rejection_summary}", UserWarning, stacklevel=2)
+        return backtest_results
 
     def _run_single_strategy(
         self,
@@ -381,6 +388,7 @@ class Backtest:
             try:
                 strategy.on_trade_executed(deepcopy(trade_info))
             except Exception as error:
+                recorded = len(errors)
                 self._handle_strategy_error(
                     strategy,
                     current_date,
@@ -388,6 +396,9 @@ class Backtest:
                     error,
                     errors,
                 )
+                if len(errors) > recorded:
+                    # Links the error to its already committed fill, even on a shared bar.
+                    errors[-1]["order_id"] = trade_info.get("order_id")
 
         # Get trading date range
         start_idx, end_idx = self._start_idx, self._end_idx
@@ -534,7 +545,13 @@ class Backtest:
         errors: List[Dict[str, Any]],
     ) -> None:
         """Raise a contextual error or append a structured diagnostic."""
-        wrapped = StrategyExecutionError(strategy.get_name(), timestamp, stage, error)
+        hint = ""
+        if stage == "prediction" and isinstance(error, KeyError):
+            hint = (
+                ". If selecting a data column in predict(), names are case-sensitive. "
+                f"Available columns: {list(self.data.columns)}."
+            )
+        wrapped = StrategyExecutionError(strategy.get_name(), timestamp, stage, error, hint)
         if self.config.error_policy == "raise":
             raise wrapped from error
 
@@ -544,7 +561,8 @@ class Backtest:
                 "timestamp": timestamp,
                 "stage": stage,
                 "error_type": type(error).__name__,
-                "message": str(error),
+                "message": str(error) + hint,
+                "source": source_location(error),
             }
         )
         logger.warning(str(wrapped))

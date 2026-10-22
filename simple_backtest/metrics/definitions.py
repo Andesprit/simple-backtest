@@ -5,6 +5,15 @@ from typing import Any, Dict
 import numpy as np
 import pandas as pd
 
+# Returns from an equity curve carry about 1e-16 of float rounding noise. A spread of all
+# per-bar values within 1e-12 is that noise, not risk, so ratios built on it are undefined.
+FLAT_TOLERANCE = 1e-12
+
+
+def is_flat(values: pd.Series) -> bool:
+    """Whether every value lies within FLAT_TOLERANCE of every other one."""
+    return values.max() - values.min() <= FLAT_TOLERANCE
+
 
 def calculate_total_return(initial_value: float, final_value: float) -> float:
     """Calculate total return percentage.
@@ -60,7 +69,7 @@ def calculate_sharpe_ratio(
         periods_per_year: Number of periods in a year
 
     Returns:
-        Sharpe Ratio
+        Sharpe Ratio, or NaN when the returns are flat (see is_flat)
     """
     # Convert annual risk-free rate to period rate
     period_rf_rate = (1 + risk_free_rate) ** (1 / periods_per_year) - 1
@@ -68,8 +77,10 @@ def calculate_sharpe_ratio(
     # Calculate excess returns
     excess_returns = returns - period_rf_rate
 
-    if pd.isna(excess_returns.std()) or excess_returns.std() == 0:
+    if pd.isna(excess_returns.std()):
         return 0.0
+    if is_flat(excess_returns):
+        return float("nan")
 
     # Annualize
     return (excess_returns.mean() / excess_returns.std()) * np.sqrt(periods_per_year)
@@ -97,7 +108,7 @@ def calculate_sortino_ratio(
     # RMS shortfall across ALL observations, relative to the target, not the
     # dispersion of negative observations around their own mean.
     downside_std = np.sqrt(excess_returns.clip(upper=0).pow(2).mean())
-    if pd.isna(downside_std) or downside_std == 0:
+    if pd.isna(downside_std) or downside_std <= FLAT_TOLERANCE:
         return float("nan")
 
     # Annualize
@@ -252,7 +263,7 @@ def calculate_information_ratio(
         periods_per_year: Number of periods in a year
 
     Returns:
-        Information Ratio
+        Information Ratio, or NaN when the return difference is flat (see is_flat)
     """
     aligned = pd.concat(
         [strategy_returns.rename("strategy"), benchmark_returns.rename("benchmark")],
@@ -265,8 +276,10 @@ def calculate_information_ratio(
     # Calculate tracking error (excess returns)
     tracking_error = aligned["strategy"] - aligned["benchmark"]
 
-    if pd.isna(tracking_error.std()) or tracking_error.std() == 0:
+    if pd.isna(tracking_error.std()):
         return 0.0
+    if is_flat(tracking_error):
+        return float("nan")
 
     # Annualize
     return (tracking_error.mean() / tracking_error.std()) * np.sqrt(periods_per_year)

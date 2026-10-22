@@ -1,5 +1,7 @@
 """Integration tests for the complete backtest workflow."""
 
+import warnings
+
 import pandas as pd
 import pytest
 
@@ -11,7 +13,7 @@ from simple_backtest import (
     MovingAverageStrategy,
     Strategy,
 )
-from simple_backtest.utils.validation import StrategyError
+from simple_backtest.utils.validation import StrategyError, StrategyExecutionError
 
 
 @pytest.fixture
@@ -32,6 +34,136 @@ def sample_data():
         },
         index=dates,
     )
+
+
+@pytest.mark.parametrize("execution_price", ["open", "close", "typical"])
+def test_lowercase_data_matches_canonical_without_mutating_input(sample_data, execution_price):
+    config = BacktestConfig(
+        lookback_period=30,
+        parallel_execution=False,
+        execution_price=execution_price,
+        max_volume_participation=0.1,
+    )
+    lowercase = sample_data.rename(columns=str.lower)
+    original = lowercase.copy(deep=True)
+    canonical = Backtest(sample_data, config).run([BuyAndHoldStrategy(shares=1)])
+    normalized = Backtest(lowercase, config).run([BuyAndHoldStrategy(shares=1)])
+    expected = canonical.get_strategy("BuyAndHold")
+    actual = normalized.get_strategy("BuyAndHold")
+    pd.testing.assert_frame_equal(lowercase, original)
+    assert actual.metrics == expected.metrics
+    # Separate runs generate distinct order IDs; compare the financial records.
+    for field in ("trade_history", "order_outcomes"):
+        pd.testing.assert_frame_equal(
+            pd.DataFrame(getattr(actual, field)).drop(columns="order_id"),
+            pd.DataFrame(getattr(expected, field)).drop(columns="order_id"),
+        )
+    pd.testing.assert_series_equal(actual.portfolio_values, expected.portfolio_values)
+
+
+@pytest.mark.parametrize("parallel", [False, True])
+def test_rejected_orders_warn_once_per_strategy_per_run(sample_data, parallel):
+    config = BacktestConfig(
+        initial_capital=1000, lookback_period=30, parallel_execution=parallel, n_jobs=2
+    )
+    backtest = Backtest(sample_data, config)
+    strategies = [BuyAndHoldStrategy(shares=100, name=name) for name in ("TooBig", "AlsoTooBig")]
+
+    for _ in range(2):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            results = backtest.run(strategies)
+
+        assert len(caught) == 2
+        for name, warning in zip(("TooBig", "AlsoTooBig"), caught):
+            result = results.get_strategy(name)
+            message = str(warning.message)
+            assert warning.category is UserWarning
+            assert name in message
+            assert "170 orders rejected" in message
+            assert "insufficient_cash" in message
+            assert "buy_budget" in message
+            assert "fewer shares" in message
+            assert "170 orders rejected" in result.summary()
+            assert len(result.order_outcomes) == 170
+            assert result.trade_history == []
+            assert result.errors == []
+
+
+@pytest.mark.parametrize("parallel", [False, True])
+def test_fully_filled_dca_and_ma_do_not_warn(sample_data, parallel):
+    config = BacktestConfig(
+        initial_capital=10000, lookback_period=30, parallel_execution=parallel, n_jobs=2
+    )
+    strategies = [
+        DCAStrategy(investment_amount=500, interval_days=30),
+        MovingAverageStrategy(short_window=10, long_window=30, shares=10),
+    ]
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        results = Backtest(sample_data, config).run(strategies)
+
+    assert caught == []
+    for name in results.list_strategies():
+        result = results.get_strategy(name)
+        assert result.trade_history
+        assert all(o["status"] != "rejected" for o in result.order_outcomes)
+        assert "orders rejected" not in result.summary()
+
+
+def test_dca_explains_exhausted_cash_after_earlier_fills(sample_data):
+    config = BacktestConfig(initial_capital=1000, lookback_period=30, parallel_execution=False)
+    strategy = DCAStrategy(investment_amount=500, interval_days=30)
+    with pytest.warns(UserWarning, match="cash was exhausted") as caught:
+        results = Backtest(sample_data, config).run([strategy])
+
+    assert len(caught) == 1
+    result = results.get_strategy(strategy.get_name())
+    assert len(result.trade_history) == 2
+    assert "initial_capital" in result.summary()
+    assert "investment_amount" in result.summary()
+    assert result.errors == []
+
+
+@pytest.mark.parametrize("policy", ["raise", "continue"])
+def test_feedback_missing_prediction_column(sample_data, policy):
+    class BadColumn(Strategy):
+        def predict(self, data, trade_history):
+            data["close"]
+            return self.hold()
+
+    config = BacktestConfig(lookback_period=30, error_policy=policy, parallel_execution=False)
+    backtest = Backtest(sample_data.head(33), config)
+    if policy == "raise":
+        with pytest.raises(StrategyExecutionError) as caught:
+            backtest.run([BadColumn()])
+        assert isinstance(caught.value.cause, KeyError)
+        assert caught.value.cause.args == ("close",)
+        messages = [str(caught.value)]
+    else:
+        result = backtest.run([BadColumn()]).get_strategy("BadColumn")
+        assert len(result.errors) == 3
+        assert result.trade_history == []
+        messages = [error["message"] for error in result.errors]
+    for message in messages:
+        assert "'close'" in message
+        assert "'Close'" in message
+        assert "Available columns" in message
+        assert "case-sensitive" in message
+
+
+@pytest.mark.parametrize("prediction", [None, "buy"])
+def test_feedback_bad_prediction_keeps_continue_diagnostics(sample_data, prediction):
+    class BadReturn(Strategy):
+        def predict(self, data, trade_history):
+            return prediction
+
+    config = BacktestConfig(lookback_period=30, error_policy="continue", parallel_execution=False)
+    result = Backtest(sample_data.head(33), config).run([BadReturn()]).get_strategy("BadReturn")
+    assert len(result.errors) == 3
+    assert result.trade_history == []
+    assert all(error["error_type"] == "AttributeError" for error in result.errors)
+    assert all("self.hold()" in error["message"] for error in result.errors)
 
 
 class TestFullBacktestWorkflow:

@@ -56,6 +56,18 @@ def test_validate_prediction_missing_keys():
         strategy.validate_prediction({"size": 10})
 
 
+@pytest.mark.parametrize("prediction", [None, "buy", ["buy"], 1])
+def test_feedback_prediction_requires_a_dict(prediction):
+    with pytest.raises(AttributeError) as caught:
+        DummyStrategy().validate_prediction(prediction)
+
+    message = str(caught.value)
+    assert "predict()" in message
+    assert type(prediction).__name__ in message
+    for helper in ("self.buy(", "self.sell(", "self.hold()"):
+        assert helper in message
+
+
 def test_validate_prediction_invalid_signal():
     """Test prediction validation fails with invalid signal."""
     strategy = DummyStrategy()

@@ -208,9 +208,10 @@ def test_undefined_objectives_are_not_selected():
         with pytest.raises(ValueError, match="undefined"):
             choose("sortino_ratio")
     optimizer = GridSearchOptimizer(verbose=False)
-    assert optimizer.optimize(
-        data, settings, BuyAndHoldStrategy, {"shares": [1, 2]}, "sortino_ratio"
-    ).empty
+    with pytest.warns(UserWarning, match="No candidate had a defined sortino_ratio"):
+        assert optimizer.optimize(
+            data, settings, BuyAndHoldStrategy, {"shares": [1, 2]}, "sortino_ratio"
+        ).empty
     assert optimizer.summary["undefined_objectives"] == 2
 
 

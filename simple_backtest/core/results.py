@@ -1,13 +1,27 @@
 """Results container classes for backtesting with helper methods."""
 
+from collections import Counter
 from copy import deepcopy
+from difflib import get_close_matches
+from html import escape
 from pathlib import Path
+from textwrap import fill, wrap
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
 from simple_backtest.core.serialization import write_json
 from simple_backtest.metrics.objectives import metric_is_maximized
+
+
+def _metric_hint(metric: str, available: list[str]) -> str:
+    matches = get_close_matches(metric, available, n=1) if isinstance(metric, str) else []
+    suggestion = f" Did you mean '{matches[0]}'?" if matches else ""
+    return f"Available metrics: {available}.{suggestion}"
+
+
+def _format_value(value: Any, precision: str = ".2f", suffix: str = "", prefix: str = "") -> str:
+    return f"{prefix}{value:{precision}}{suffix}" if pd.notna(value) else "n/a"
 
 
 class StrategyResult:
@@ -34,6 +48,7 @@ class StrategyResult:
         self.returns = data["returns"]
         self.errors = data.get("errors", [])
         self.order_outcomes = data.get("order_outcomes", [])
+        self._diagnostics_recorded = {key for key in ("errors", "order_outcomes") if key in data}
         self._metadata = deepcopy(data.get("metadata", {}))
 
     @property
@@ -45,14 +60,93 @@ class StrategyResult:
         """Export equity, trades, diagnostics, metrics, and provenance as portable JSON."""
         write_json(path, {"schema_version": 1, "name": self.name, **self._to_dict()})
 
+    def export_html(self, path: str | Path, price_data: pd.DataFrame | None = None) -> Path:
+        """Write one self-contained offline HTML report for this result.
+
+        The report holds metrics, diagnostics, recorded assumptions, an equity and
+        drawdown chart and, when ``price_data`` is given, the trade chart.
+
+        :param path: Output .html file path
+        :param price_data: Optional price DataFrame you gave to Backtest, for trade context
+        :return: The written path
+        """
+        from simple_backtest.visualization.report import write_report
+
+        results = BacktestResults({})
+        results._strategies[self.name] = self
+        return write_report(path, results, price_data)
+
+    def explain_error(
+        self,
+        error_index: int = 0,
+        price_data: pd.DataFrame | None = None,
+        context_bars: int = 5,
+    ) -> str:
+        """Explain one recorded strategy error in plain text, without re-running anything.
+
+        Shows the error's time, stage, message, recorded source location, what the
+        stage means for timing and fills, and the fills on that bar. With
+        ``price_data`` (the DataFrame you gave to Backtest) it also shows up to
+        ``context_bars`` bars before the error and, labelled separately, the bar
+        where orders execute. Supplied prices are checked against the recorded data
+        fingerprint and labelled when they differ.
+
+        :param error_index: Position in ``result.errors`` (negative counts from the end)
+        :param price_data: Optional price DataFrame for context
+        :param context_bars: Bars of prior context to show, from 1 to 200
+        :return: Multi-line explanation; print() it
+        """
+        from simple_backtest.core.error_context import explain_error
+
+        return explain_error(self, error_index, price_data, context_bars)
+
     def summary(self) -> str:
-        """Get formatted metrics summary.
+        """Get formatted metrics and an explanation of any rejected orders.
 
         :return: Pretty-formatted string of metrics
         """
         from simple_backtest.metrics.calculator import format_metrics
 
-        return format_metrics(self.metrics)
+        summary = format_metrics(self.metrics)
+        rejection_summary = self._rejection_summary()
+        if rejection_summary:
+            summary += f"\n\nOrder Outcomes:\n  {rejection_summary}"
+        return summary
+
+    def _rejection_summary(self) -> str | None:
+        """Explain rejections once, without treating normal outcomes as errors."""
+        reasons = Counter(
+            outcome.get("reason") or "unknown"
+            for outcome in self.order_outcomes
+            if outcome["status"] == "rejected"
+        )
+        if not reasons:
+            return None
+
+        reason, reason_count = reasons.most_common(1)[0]
+        hints = {
+            "insufficient_cash": (
+                "Request fewer shares or use self.buy_budget(self.get_cash()) "
+                "to size buys within available cash, including commission."
+            ),
+            "insufficient_shares": "Sell no more than your held shares (self.get_position()).",
+            "zero_size": "Use a positive size or budget when placing an order; use self.hold() to wait.",
+            "zero_volume": "Check Volume data and max_volume_participation; this bar permits no fill.",
+        }
+        hint = hints.get(
+            reason, "Inspect result.order_outcomes for the rejected orders and reasons."
+        )
+        final_cash = self.trade_history[-1].get("cash") if self.trade_history else None
+        if reason == "zero_size" and final_cash is not None and abs(final_cash) <= 1e-8:
+            hint = (
+                "Available cash was exhausted; lower investment_amount or raise initial_capital "
+                "to keep investing, or use self.hold() while no cash is available."
+            )
+        count = sum(reasons.values())
+        return (
+            f"{count} order{'s' if count != 1 else ''} rejected; "
+            f"main reason: {reason} ({reason_count}). {hint}"
+        )
 
     def plot_equity_curve(self, show_drawdown: bool = True):
         """Plot equity curve for this strategy.
@@ -67,12 +161,15 @@ class StrategyResult:
     def plot_trades(self, price_data):
         """Plot price chart with buy/sell markers for this strategy.
 
+        The chart covers the whole trading period, even without fills, and notes
+        below it explain rejected orders, strategy errors or missing prices.
+
         :param price_data: Original OHLCV DataFrame with DatetimeIndex
         :return: Plotly figure
         """
         from simple_backtest.visualization.plotter import plot_strategy_trades
 
-        figures = plot_strategy_trades(price_data, {self.name: self._to_dict()})
+        figures = plot_strategy_trades(price_data, {self.name: self._plot_dict()})
         return figures.get(self.name)
 
     def export_trades(self, path: str) -> None:
@@ -111,7 +208,9 @@ class StrategyResult:
         """
         if metric_name not in self.metrics:
             available = list(self.metrics.keys())
-            raise KeyError(f"Metric '{metric_name}' not found. Available metrics: {available}")
+            raise KeyError(
+                f"Metric '{metric_name}' not found. {_metric_hint(metric_name, available)}"
+            )
         return self.metrics[metric_name]
 
     def _to_dict(self) -> Dict[str, Any]:
@@ -129,6 +228,13 @@ class StrategyResult:
             "metadata": self.metadata,
         }
 
+    def _plot_dict(self) -> Dict[str, Any]:
+        """Like _to_dict, but leave out diagnostics a legacy result never recorded."""
+        data = self._to_dict()
+        for key in {"errors", "order_outcomes"} - self._diagnostics_recorded:
+            del data[key]
+        return data
+
     def __getitem__(self, key: str) -> Any:
         """Dict-style access for backward compatibility.
 
@@ -141,9 +247,55 @@ class StrategyResult:
         """String representation."""
         return (
             f"StrategyResult(name='{self.name}', "
-            f"sharpe={self.metrics.get('sharpe_ratio', 0):.2f}, "
+            f"sharpe={_format_value(self.metrics.get('sharpe_ratio', 0))}, "
             f"total_return={self.metrics.get('total_return', 0):.2f}%)"
         )
+
+    def __str__(self) -> str:
+        """Show the result's key metrics and diagnostics with explicit units."""
+        lines = [fill(self.name, width=120)]
+        lines.extend(f"  {label}: {formatted}" for label, formatted in self._metric_rows())
+        lines.extend(fill(note, width=120) for note in self._diagnostic_notes())
+        return "\n".join(lines)
+
+    def _metric_rows(self) -> list[tuple[str, str]]:
+        """Format the key metrics once for printed and HTML reports."""
+        rows = []
+        closed_trades = any(trade.get("signal") == "sell" for trade in self.trade_history)
+        for metric, label, precision, suffix, prefix in (
+            ("total_return", "Total Return", ".2f", "%", ""),
+            ("cagr", "CAGR", ".2f", "%", ""),
+            ("max_drawdown", "Max Drawdown", ".2f", "%", ""),
+            ("sharpe_ratio", "Sharpe", ".2f", "", ""),
+            ("total_trades", "Trades", ".0f", "", ""),
+            ("final_value", "Final Value", ",.2f", "", "$"),
+            ("win_rate", "Win Rate", ".2f", "%", ""),
+            ("profit_factor", "Profit Factor", ".2f", "", ""),
+        ):
+            value = self.metrics.get(metric)
+            formatted = _format_value(value, precision, suffix, prefix)
+            if metric in ("win_rate", "profit_factor") and not closed_trades:
+                formatted = "n/a (no closed trades)"
+            rows.append((label, formatted))
+        return rows
+
+    def _diagnostic_notes(self, max_message: int | None = None) -> list[str]:
+        notes = []
+        rejected = self._rejection_summary()
+        if rejected:
+            notes.append(rejected)
+        if self.errors:
+            count = len(self.errors)
+            first = self.errors[0]
+            message = str(first.get("message", ""))
+            if max_message is not None and len(message) > max_message:
+                message = message[: max_message - 3] + "..."
+            notes.append(
+                f"{count} strategy error{'s' if count != 1 else ''} recorded; "
+                f"first: {first.get('error_type', 'error')}: {message}. "
+                "Call result.explain_error() to see where and when it failed; raw records are in result.errors."
+            )
+        return notes
 
 
 class BacktestResults:
@@ -186,6 +338,20 @@ class BacktestResults:
         :return: List of strategy names
         """
         return list(self._strategies.keys())
+
+    def export_html(self, path: str | Path, price_data: pd.DataFrame | None = None) -> Path:
+        """Write one self-contained offline HTML report for all strategies.
+
+        The report holds the comparison, diagnostics, recorded assumptions, an equity
+        and drawdown chart and, when ``price_data`` is given, one trade chart per strategy.
+
+        :param path: Output .html file path
+        :param price_data: Optional price DataFrame you gave to Backtest, for trade context
+        :return: The written path
+        """
+        from simple_backtest.visualization.report import write_report
+
+        return write_report(path, self, price_data)
 
     def export_json(self, path: str | Path) -> None:
         """Export all strategy results and the benchmark in one versioned document."""
@@ -287,7 +453,13 @@ class BacktestResults:
             name for name, result in self._strategies.items() if metric not in result.metrics
         ]
         if missing:
-            raise KeyError(f"Metric '{metric}' is missing for strategies: {missing}")
+            available = sorted(
+                {key for result in self._strategies.values() for key in result.metrics}
+            )
+            raise KeyError(
+                f"Metric '{metric}' is missing for strategies: {missing}. "
+                f"{_metric_hint(metric, available)}"
+            )
 
     def plot_comparison(self, include_benchmark: bool = True):
         """Plot equity curves for all strategies.
@@ -314,7 +486,7 @@ class BacktestResults:
         """
         from simple_backtest.visualization.plotter import plot_strategy_trades
 
-        plot_data = {name: result._to_dict() for name, result in self._strategies.items()}
+        plot_data = {name: result._plot_dict() for name, result in self._strategies.items()}
         return plot_strategy_trades(price_data, plot_data)
 
     def export_all_metrics(self, path: str) -> None:
@@ -370,7 +542,101 @@ class BacktestResults:
 
     def __repr__(self) -> str:
         """String representation."""
-        return f"BacktestResults({len(self._strategies)} strategies)"
+        return (
+            f"BacktestResults({len(self._strategies)} strategies; "
+            "print(results) for the comparison)"
+        )
+
+    def __str__(self) -> str:
+        """Show returns, risk and trading activity without pandas display truncation."""
+        comparison = self._comparison_table()
+        if comparison.empty:
+            return "No strategies available."
+
+        name_width = min(32, max(len("Strategy"), *(len(str(n)) for n in comparison.index)))
+        widths = [max(len(label), comparison[label].map(len).max()) for label in comparison]
+        header = f"{'Strategy':<{name_width}}  " + "  ".join(
+            f"{label:>{width}}" for label, width in zip(comparison.columns, widths)
+        )
+        lines = [header, "-" * len(header)]
+        for name, metrics in comparison.iterrows():
+            name_lines = wrap(str(name), width=name_width) or [""]
+            values = [f"{value:>{width}}" for value, width in zip(metrics, widths)]
+            lines.append(f"{name_lines[0]:<{name_width}}  " + "  ".join(values))
+            lines.extend(name_lines[1:])
+        lines.extend(["", fill(self._return_verdict(), width=120)])
+        notes = self._diagnostic_notes()
+        if notes:
+            lines.append("")
+            lines.extend(fill(note, width=120) for note in notes)
+        return "\n".join(lines)
+
+    def _comparison_table(self) -> pd.DataFrame:
+        """Build the same display values for terminal and notebook reports."""
+        columns = {
+            "total_return": ("Return", "%"),
+            "cagr": ("CAGR", "%"),
+            "max_drawdown": ("Max Drawdown", "%"),
+            "sharpe_ratio": ("Sharpe", ""),
+            "total_trades": ("Trades", ""),
+        }
+        table = self.compare(metrics=list(columns))
+        if not table.empty:
+            for metric, (_, suffix) in columns.items():
+                precision = ".0f" if metric == "total_trades" else ".2f"
+                table[metric] = table[metric].map(
+                    lambda value: _format_value(value, precision, suffix)
+                )
+        table.index.name = "Strategy"
+        return table.rename(columns={metric: label for metric, (label, _) in columns.items()})
+
+    def _return_verdict(self) -> str:
+        eligible = [
+            result
+            for result in self._strategies.values()
+            if pd.notna(result.metrics.get("total_return"))
+        ]
+        if eligible:
+            best = max(eligible, key=lambda result: result.metrics["total_return"])
+            best_return = best.metrics["total_return"]
+            verdict = f"Best total return: {best.name} ({best_return:.2f}%)."
+            benchmark_return = (
+                self.benchmark.metrics.get("total_return") if self.benchmark else None
+            )
+            if pd.notna(benchmark_return):
+                difference = best_return - benchmark_return
+                if difference == 0:
+                    verdict += " It matched benchmark."
+                else:
+                    direction = "beat" if difference > 0 else "trailed"
+                    verdict += (
+                        f" It {direction} benchmark by {abs(difference):.2f} percentage points."
+                    )
+            else:
+                verdict += " No benchmark available for comparison."
+        else:
+            verdict = "No strategy has a defined total return."
+        return verdict
+
+    def _diagnostic_notes(self) -> list[str]:
+        results = list(self._strategies.values())
+        if self.benchmark is not None:
+            results.append(self.benchmark)
+        return [
+            f"{result.name}: {note}" for result in results for note in result._diagnostic_notes()
+        ]
+
+    def _repr_html_(self) -> str:
+        """Render the same comparison and diagnostics in a notebook cell."""
+        table = self._comparison_table()
+        if table.empty:
+            return "<p>No strategies available.</p>"
+        report = table.to_html(escape=True, border=0, max_rows=None, max_cols=None)
+        report += f"<p>{escape(self._return_verdict())}</p>"
+        notes = self._diagnostic_notes()
+        if notes:
+            report += "<ul>" + "".join(f"<li>{escape(note)}</li>" for note in notes) + "</ul>"
+        return report
 
     def items(self):
         """Iterate over (name, result_dict) pairs for backward compatibility.

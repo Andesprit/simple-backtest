@@ -1,5 +1,6 @@
 """Tests for validation utilities."""
 
+import pickle
 from datetime import timedelta
 
 import pandas as pd
@@ -11,6 +12,7 @@ from simple_backtest.utils.validation import (
     DataValidationError,
     DateRangeError,
     StrategyError,
+    StrategyExecutionError,
     validate_dataframe,
     validate_date_range,
     validate_strategies,
@@ -47,6 +49,23 @@ class TestValidateDataframe:
         """Test that valid dataframe passes validation."""
         # Should not raise
         validate_dataframe(valid_dataframe)
+
+    @pytest.mark.parametrize("case", [str.lower, str.upper, str.swapcase])
+    def test_ohlcv_column_case_is_normalized(self, valid_dataframe, case):
+        df = valid_dataframe.rename(columns=case)
+        df["Custom Feature"] = 7
+        normalized = validate_dataframe(df, require_volume=True)
+        pd.testing.assert_frame_equal(normalized[valid_dataframe.columns], valid_dataframe)
+        assert normalized["Custom Feature"].eq(7).all()
+
+    @pytest.mark.parametrize("alias", ["Close", "CLOSE"])
+    def test_ambiguous_column_case_is_rejected(self, valid_dataframe, alias):
+        df = valid_dataframe.rename(columns={"Close": alias}).assign(close=999.0)
+        with pytest.raises(DataValidationError, match="[Aa]mbiguous") as caught:
+            validate_dataframe(df)
+        assert alias in str(caught.value)
+        assert "close" in str(caught.value)
+        assert "rename" in str(caught.value).lower() or "remove" in str(caught.value).lower()
 
     def test_empty_dataframe(self):
         """Test that empty dataframe raises error."""
@@ -245,8 +264,28 @@ class TestValidateStrategies:
 
     def test_not_list(self):
         """Test that non-list raises error."""
-        with pytest.raises(TypeError):  # Will raise TypeError for non-iterable
+        with pytest.raises(TypeError, match="list"):
             validate_strategies(DummyStrategy())
+
+    def test_feedback_class_requires_instantiation(self):
+        with pytest.raises(StrategyError) as caught:
+            validate_strategies([DummyStrategy])
+        assert "DummyStrategy(...)" in str(caught.value)
+        assert "instance" in str(caught.value)
+
+    def test_feedback_direct_class_requires_a_list_of_instances(self):
+        with pytest.raises(TypeError, match=r"run\(\[DummyStrategy\(\.\.\.\)\]\)"):
+            validate_strategies(DummyStrategy)
+
+    @pytest.mark.parametrize("sets_name", [False, True])
+    def test_feedback_missing_super_init(self, sets_name):
+        class Uninitialized(DummyStrategy):
+            def __init__(self):
+                if sets_name:
+                    self._name = "Custom"
+
+        with pytest.raises(AttributeError, match=r"super\(\).__init__\(\)"):
+            validate_strategies([Uninitialized()])
 
     def test_non_strategy_instance(self):
         """Test that non-Strategy instance raises error."""
@@ -278,6 +317,19 @@ class TestValidateStrategies:
 
 class TestExceptionClasses:
     """Tests for custom exception classes."""
+
+    def test_feedback_column_hint_survives_worker_serialization(self):
+        error = StrategyExecutionError(
+            "BadColumn",
+            pd.Timestamp("2024-01-01"),
+            "prediction",
+            KeyError("close"),
+            ". Available columns: ['Close'].",
+        )
+        restored = pickle.loads(pickle.dumps(error))
+        assert isinstance(restored, StrategyExecutionError)
+        assert restored.hint == error.hint
+        assert str(restored).count("Available columns: ['Close']") == 1
 
     def test_backtest_error_inheritance(self):
         """Test that BacktestError inherits from Exception."""

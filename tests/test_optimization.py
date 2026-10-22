@@ -1,9 +1,11 @@
 """Tests for optimization modules."""
 
+import warnings
+
 import pandas as pd
 import pytest
 
-from simple_backtest import BacktestConfig
+from simple_backtest import BacktestConfig, BuyAndHoldStrategy
 from simple_backtest.optimization import (
     GridSearchOptimizer,
     RandomSearchOptimizer,
@@ -45,6 +47,55 @@ def param_space():
         "long_window": [20, 30],
         "shares": [10],
     }
+
+
+@pytest.mark.parametrize(
+    "optimizer",
+    [
+        GridSearchOptimizer(verbose=False),
+        RandomSearchOptimizer(n_iter=3, verbose=False),
+        WalkForwardOptimizer(n_splits=2, verbose=False),
+    ],
+)
+def test_optimizer_bounds_rejection_warnings(sample_data, backtest_config, optimizer):
+    settings = backtest_config.model_copy(update={"initial_capital": 1000})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        results = optimizer.optimize(
+            sample_data, settings, BuyAndHoldStrategy, {"shares": [100, 200, 300]}, "total_return"
+        )
+
+    assert not results.empty
+    assert len(caught) <= 1
+
+
+@pytest.mark.parametrize(
+    "optimizer",
+    [GridSearchOptimizer(verbose=False), RandomSearchOptimizer(n_iter=2, verbose=False)],
+)
+def test_feedback_all_optimizer_candidates_failed(sample_data, backtest_config, optimizer):
+    with pytest.raises(ValueError) as caught:
+        optimizer.optimize(sample_data, backtest_config, MovingAverageStrategy, {"short": [5, 10]})
+    message = str(caught.value)
+    assert "All 2 candidate evaluations failed" in message
+    assert "'short'" in message
+    assert "Valid parameters:" in message
+    for parameter in ("short_window", "long_window", "shares", "name"):
+        assert parameter in message
+    assert len(optimizer.failures) == 2
+    assert optimizer.summary["failed_evaluations"] == 2
+
+
+def test_feedback_random_search_keeps_valid_candidates(sample_data, backtest_config):
+    optimizer = RandomSearchOptimizer(n_iter=2, verbose=False)
+    results = optimizer.optimize(
+        sample_data,
+        backtest_config,
+        MovingAverageStrategy,
+        {"short_window": [5, 30], "long_window": [20], "shares": [1]},
+    )
+    assert results["short_window"].tolist() == [5]
+    assert len(optimizer.failures) == 1
 
 
 class TestGridSearchOptimizer:
@@ -157,13 +208,14 @@ class TestGridSearchOptimizer:
         """Test behavior with empty parameter space."""
         optimizer = GridSearchOptimizer(verbose=False)
 
-        # Empty param space results in 1 result (single combination with no parameters)
+        # Empty param space results in 1 result (single combination with no parameters).
+        # The defaults never trade here, so their flat returns have no Sharpe ratio.
         results = optimizer.optimize(
             data=sample_data,
             config=backtest_config,
             strategy_class=MovingAverageStrategy,
             param_space={},
-            metric="sharpe_ratio",
+            metric="total_return",
         )
 
         assert isinstance(results, pd.DataFrame)
